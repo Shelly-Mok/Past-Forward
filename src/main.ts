@@ -1,4 +1,7 @@
 import './style.css'
+import { createArchiveScene } from './archive/createArchiveScene'
+import { createGardenScene, readArchiveProfile } from './garden/createGardenScene'
+import type { ArchiveProfile } from './archive/archiveInterview'
 import { projectedDragProgress, resolveMoonRelease } from './game/input/moonDrag'
 import { sampleWarpTimeline, type WarpSample } from './game/transition/warpTimeline'
 import { createWarpField } from './render/createWarpField'
@@ -31,6 +34,7 @@ app.innerHTML = `
         height="${STAGE_HEIGHT}"
         aria-label="黑白像素海岸。向上滚动时，月亮逐渐放大，海岸退入黑暗，星星开始显现。"
       ></canvas>
+      <div class="warp-whiteout" aria-hidden="true"></div>
       <button class="moon-target" type="button" aria-label="观察月亮"></button>
       <div class="life-copy-sequence" aria-hidden="true">
         <svg class="moon-copy-orbit" viewBox="0 0 400 400" focusable="false" aria-hidden="true">
@@ -101,6 +105,60 @@ app.innerHTML = `
       </div>
     </section>
   </main>
+  <section class="archive-scene" aria-label="时间档案局：走向审查席" aria-hidden="true" data-phase="arrival" data-screens="0">
+    <div class="archive-frame">
+      <div class="archive-world" aria-hidden="true">
+        <img class="archive-background" src="/assets/archive-walk-clean-v1.png" alt="" />
+        <i class="archive-checkpoint-light archive-checkpoint-light--age" data-checkpoint="age"></i>
+        <i class="archive-checkpoint-light archive-checkpoint-light--gender" data-checkpoint="gender"></i>
+        <i class="archive-checkpoint-light archive-checkpoint-light--family" data-checkpoint="family"></i>
+        <i class="archive-checkpoint-light archive-checkpoint-light--status" data-checkpoint="status"></i>
+        <div class="archive-screen archive-screen--large"><i></i></div>
+        <div class="archive-screen archive-screen--upper"><i></i></div>
+        <div class="archive-screen archive-screen--middle"><i></i></div>
+        <canvas class="archive-character-layer" width="${STAGE_WIDTH}" height="${STAGE_HEIGHT}"></canvas>
+        <img class="archive-seated-state" src="/concepts/archive-zoned-seated-memories-v2.png" alt="" />
+        <canvas class="archive-memory-layer" width="${STAGE_WIDTH}" height="${STAGE_HEIGHT}"></canvas>
+        <div class="archive-vault-rig" aria-hidden="true">
+          <img class="archive-vault-portal-state" src="/assets/archive-vault-open-v1.png" alt="" />
+          <canvas class="archive-vault-door-3d" width="836" height="471"></canvas>
+        </div>
+      </div>
+      <div class="archive-white-entry" aria-hidden="true"></div>
+      <div class="archive-vignette" aria-hidden="true"></div>
+      <div class="archive-location" aria-hidden="true"><span>月面档案局</span><small>CHRONOLOGY ARCHIVE · 00</small></div>
+      <div class="archive-control-hint" aria-live="polite"><kbd>W / ↑</kbd><span>向前</span></div>
+      <button class="archive-forward-control" type="button" tabindex="-1"><span>按住向前</span></button>
+      <div class="archive-distance" aria-hidden="true"><i></i><span>审查席</span></div>
+      <aside class="archive-interview" role="dialog" aria-modal="true" aria-labelledby="archive-question" aria-hidden="true">
+        <header>
+          <span>零点小姐 · 登记讯号</span>
+          <b class="archive-interview-count">01 / 05</b>
+        </header>
+        <small class="archive-interview-checkpoint">左侧 · 第一盏灯</small>
+        <p id="archive-question">先告诉我，你现在几岁？</p>
+        <span class="archive-interview-note">这会决定回测从哪一段人生开始比对。</span>
+        <form class="archive-interview-form" novalidate>
+          <div class="archive-interview-options" aria-label="快捷回答"></div>
+          <label>
+            <span class="sr-only">回答零点小姐的问题</span>
+            <input class="archive-interview-input" type="text" maxlength="80" autocomplete="off" />
+          </label>
+          <button type="submit"><span>记录</span><kbd>ENTER</kbd></button>
+          <output class="archive-interview-error" aria-live="polite"></output>
+        </form>
+        <nav class="archive-interview-actions" aria-label="修改本次登记">
+          <button class="archive-interview-previous" type="button"><span aria-hidden="true">←</span> 上一问</button>
+          <button class="archive-interview-reset" type="button">重置到入口</button>
+        </nav>
+      </aside>
+      <article class="archive-audit-copy" aria-live="polite">
+        <small class="archive-audit-speaker">零点小姐 · 平行人生审查</small>
+        <p class="archive-audit-message">晚上好。先看看那些没有发生的人生。</p>
+        <span class="archive-audit-note">模拟影像并非预言 · 尚未接入真实知乎档案</span>
+      </article>
+    </div>
+  </section>
 `
 
 const scene = document.querySelector<HTMLElement>('.opening-scene')!
@@ -110,6 +168,16 @@ const moonTarget = document.querySelector<HTMLButtonElement>('.moon-target')!
 const lifeCopySequence = document.querySelector<HTMLElement>('.life-copy-sequence')!
 const backtestEntry = document.querySelector<HTMLElement>('.backtest-entry')!
 const startBacktest = document.querySelector<HTMLButtonElement>('.start-backtest')!
+const archiveSceneElement = document.querySelector<HTMLElement>('.archive-scene')!
+const archiveScene = createArchiveScene(archiveSceneElement)
+const gardenScene = createGardenScene(app)
+const gardenWhiteout = document.createElement('div')
+gardenWhiteout.className = 'garden-whiteout'
+gardenWhiteout.hidden = true
+gardenWhiteout.setAttribute('aria-hidden', 'true')
+app.append(gardenWhiteout)
+let gardenTransitionStarted = false
+let pageLeaving = false
 const displayCtx = canvas.getContext('2d', { alpha: false }) as CanvasRenderingContext2D
 if (!displayCtx) throw new Error('Canvas 2D is unavailable')
 displayCtx.imageSmoothingEnabled = false
@@ -205,6 +273,8 @@ let warpComplete = false
 let warpStartedAt = 0
 let warpSample: WarpSample = sampleWarpTimeline(0)
 let hiddenAt = 0
+let openingRuntimeActive = true
+let archiveEntryTimer = 0
 let warpAudio: {
   drone: OscillatorNode
   overtone: OscillatorNode
@@ -220,6 +290,75 @@ const smoothstep = (start: number, end: number, value: number) => {
   const amount = clamp((value - start) / (end - start))
   return amount * amount * (3 - 2 * amount)
 }
+
+function enterArchive(entry: 'warp' | 'debug') {
+  if (!openingRuntimeActive) return
+
+  openingRuntimeActive = false
+  cancelAnimationFrame(animationFrame)
+  scene.setAttribute('aria-hidden', 'true')
+  scene.classList.add('is-handing-off')
+  archiveScene.show({ entry })
+
+  if (entry === 'debug') {
+    scene.style.display = 'none'
+    return
+  }
+
+  // Keep the completed white point behind the archive's white entry layer
+  // until the corridor has fully materialised. This prevents a black frame
+  // between the space crossing and the chronology archive.
+  archiveEntryTimer = window.setTimeout(() => {
+    archiveEntryTimer = 0
+    scene.style.display = 'none'
+  }, 1320)
+}
+
+function showGarden(profile?: ArchiveProfile) {
+  openingRuntimeActive = false
+  cancelAnimationFrame(animationFrame)
+  scene.style.display = 'none'
+  scene.setAttribute('aria-hidden', 'true')
+  archiveScene.hide()
+  gardenScene.show(profile)
+  const url = new URL(window.location.href)
+  url.searchParams.delete('debug')
+  url.searchParams.set('scene', 'garden')
+  history.replaceState(null, '', url)
+}
+
+archiveSceneElement.addEventListener('life-backtest:archive-door-arrived', async event => {
+  if (gardenTransitionStarted) return
+  gardenTransitionStarted = true
+  const profile = (event as CustomEvent<{ profile: ArchiveProfile }>).detail.profile
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+  const delay = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms))
+  // Freeze the one live walker on the threshold; retain the last archive frame under the fade.
+  archiveScene.pause()
+  archiveSceneElement.inert = true
+  gardenWhiteout.hidden = false
+  gardenWhiteout.dataset.phase = 'entering'
+  void gardenWhiteout.offsetWidth
+  gardenWhiteout.classList.add('is-white')
+  await delay(reduced ? 220 : 950)
+  if (pageLeaving) return
+  gardenWhiteout.dataset.phase = 'white'
+  // Decode the next scene before revealing it, but never trap the player behind a failed asset.
+  await Promise.race([gardenScene.ready, delay(8000)])
+  if (pageLeaving) return
+  gardenScene.element.inert = true
+  showGarden(profile)
+  await delay(reduced ? 120 : 550)
+  if (pageLeaving) return
+  gardenWhiteout.dataset.phase = 'revealing'
+  gardenWhiteout.classList.add('is-revealing')
+  await delay(reduced ? 270 : 1150)
+  if (pageLeaving) return
+  gardenWhiteout.hidden = true
+  gardenWhiteout.dataset.phase = 'complete'
+  gardenScene.element.inert = false
+  gardenScene.element.focus({ preventScroll: true })
+})
 
 function resetCopySequence() {
   if (copySequenceTimer) window.clearTimeout(copySequenceTimer)
@@ -794,6 +933,7 @@ function composeScene(timeSeconds: number) {
   scene.style.setProperty('--rewind-progress', displayProgress.toFixed(4))
   scene.style.setProperty('--moon-drag-progress', dragDisplay.toFixed(4))
   scene.style.setProperty('--warp-progress', (activeWarp?.travelProgress ?? 0).toFixed(4))
+  scene.style.setProperty('--arrival-progress', (activeWarp?.arrivalProgress ?? 0).toFixed(4))
   scene.classList.toggle('has-progress', targetProgress > 0.006 || displayProgress > 0.006)
   scene.dataset.transition = activeWarp
     ? `warp-${activeWarp.phase}`
@@ -861,13 +1001,14 @@ function tick(now: number) {
       scene.classList.add('is-warp-complete')
       finishWarpAudio()
       window.dispatchEvent(new CustomEvent('life-backtest:warp-complete', {
-        detail: { destination: 'time-ferry-station' },
+        detail: { destination: 'lunar-chronology-archive' },
       }))
+      enterArchive('warp')
     }
   }
 
   composeScene(timeSeconds)
-  animationFrame = requestAnimationFrame(tick)
+  if (openingRuntimeActive) animationFrame = requestAnimationFrame(tick)
 }
 
 function markAssetLoaded() {
@@ -882,7 +1023,7 @@ function markAssetLoaded() {
   composeScene(0)
   ready = true
   scene.classList.add('is-ready')
-  animationFrame = requestAnimationFrame(tick)
+  if (openingRuntimeActive) animationFrame = requestAnimationFrame(tick)
 }
 
 function changeProgress(delta: number) {
@@ -926,6 +1067,10 @@ moonTarget.addEventListener('pointerenter', () => {
   moonObserved = true
   scene.dataset.moon = 'near'
 })
+
+const requestedScene = new URLSearchParams(window.location.search)
+if (requestedScene.get('scene') === 'garden' || requestedScene.get('debug') === 'garden') showGarden(readArchiveProfile())
+else if (requestedScene.get('debug') === 'archive' || requestedScene.get('scene') === 'archive') enterArchive('debug')
 moonTarget.addEventListener('pointerleave', () => {
   moonObserved = false
   delete scene.dataset.moon
@@ -972,12 +1117,7 @@ function finishMoonDrag(event: PointerEvent) {
   activePointerId = null
 
   if (resolveMoonRelease(dragTarget, DOCK_THRESHOLD) === 'dock') {
-    dragTarget = 1
-    moonDocked = true
-    dragEnabled = false
-    scene.classList.remove('is-drag-enabled')
-    scene.classList.add('is-moon-docked')
-    moonTarget.setAttribute('aria-label', '月球已停泊在回测入口旁')
+    dockMoon()
   } else {
     dragTarget = 0
     scene.classList.add('is-moon-returning')
@@ -985,10 +1125,30 @@ function finishMoonDrag(event: PointerEvent) {
   }
 }
 
+function dockMoon() {
+  dragTarget = 1
+  moonDocked = true
+  dragEnabled = false
+  scene.classList.remove('is-drag-enabled', 'is-moon-returning')
+  scene.classList.add('is-moon-docked')
+  moonTarget.setAttribute('aria-label', '月球已停泊在回测入口旁')
+}
+
 moonTarget.addEventListener('pointerdown', beginMoonDrag)
 moonTarget.addEventListener('pointermove', moveMoonDrag)
 moonTarget.addEventListener('pointerup', finishMoonDrag)
 moonTarget.addEventListener('pointercancel', finishMoonDrag)
+moonTarget.addEventListener('click', (event) => {
+  if (event.detail !== 0 || !dragEnabled || moonDocked || displayProgress < 0.98) return
+  dockMoon()
+  playCue(54, 0.24, 0.022)
+})
+moonTarget.addEventListener('keydown', (event) => {
+  if ((event.key !== 'Enter' && event.key !== ' ') || !dragEnabled || moonDocked || displayProgress < 0.98) return
+  event.preventDefault()
+  dockMoon()
+  playCue(54, 0.24, 0.022)
+})
 
 startBacktest.addEventListener('click', () => {
   if (!portalReady || warpActive) return
@@ -1014,8 +1174,14 @@ document.addEventListener('visibilitychange', () => {
   }
   if (warpActive && hiddenAt) warpStartedAt += performance.now() - hiddenAt
   hiddenAt = 0
+  if (!openingRuntimeActive) return
   startedAt = performance.now()
   previousTick = 0
   lastPixelFrame = -1
   animationFrame = requestAnimationFrame(tick)
+})
+
+window.addEventListener('pagehide', () => {
+  pageLeaving = true
+  if (archiveEntryTimer) window.clearTimeout(archiveEntryTimer)
 })

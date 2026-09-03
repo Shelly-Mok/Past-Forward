@@ -12,7 +12,7 @@ export interface WarpSample {
   complete: boolean
 }
 
-export const WARP_DURATION_SECONDS = 6.2
+export const WARP_DURATION_SECONDS = 6.8
 
 const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value))
 
@@ -34,7 +34,7 @@ export function sampleWarpTimeline(elapsedSeconds: number): WarpSample {
   const velocity = pulse(0.92, 2.35, 4.65, 5.88, elapsed)
   const splitPulse = pulse(2.72, 3.18, 4.18, 4.76, elapsed)
   const crossingProgress = smoothstep(4.12, 5.82, elapsed)
-  const arrivalProgress = smoothstep(5.62, WARP_DURATION_SECONDS, elapsed)
+  const arrivalProgress = smoothstep(5.35, WARP_DURATION_SECONDS, elapsed)
 
   const phase: WarpPhase = elapsed < 1.35
     ? 'returning'
