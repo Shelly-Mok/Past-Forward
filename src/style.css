@@ -841,6 +841,35 @@ body {
 
 .opening-scene.is-ready { opacity: 1; }
 
+.dev-scene-skip {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  z-index: 6;
+  display: flex;
+  gap: 14px;
+  font-family: "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  opacity: 0.58;
+}
+
+.dev-scene-skip a {
+  color: #d2d2c8;
+  text-decoration: none;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.dev-scene-skip a:hover,
+.dev-scene-skip a:focus-visible {
+  opacity: 1;
+}
+
+.opening-scene.is-warping .dev-scene-skip,
+.opening-scene.is-handing-off .dev-scene-skip {
+  display: none;
+}
+
 .opening-scene.is-handing-off {
   pointer-events: none;
 }
@@ -1382,4 +1411,52 @@ body {
 
 @media (hover: none), (pointer: coarse) {
   .archive-forward-control { display: block; }
+}
+
+.personal-tag {
+  position: fixed; z-index: 40; right: 2.4%; bottom: 2.2%;
+  font-family: "SimSun", "Songti SC", serif; color: #dcdcd7;
+}
+.personal-tag-toggle {
+  border: 0; border-bottom: 1px solid #8a8a7e; padding: 0 0 3px; background: none;
+  color: #c4c4b8; font: inherit; font-size: 13px; letter-spacing: .12em; cursor: pointer;
+}
+.personal-tag-toggle:hover, .personal-tag.is-open .personal-tag-toggle { color: #fff; }
+.personal-tag.is-written .personal-tag-toggle::after { content: ' ·'; color: #8d8d83; }
+.personal-tag-panel {
+  position: absolute; right: 0; bottom: 2.6em; width: min(360px, 86vw);
+  max-height: min(72vh, 560px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 18px 18px 16px; border: 1px solid #6d6d62; background: #080808f0;
+  box-shadow: 0 8px 40px #000c;
+}
+.personal-tag-close {
+  position: absolute; top: 6px; right: 10px; border: 0; background: none;
+  color: inherit; font: inherit; font-size: 22px; line-height: 1; cursor: pointer;
+}
+.personal-tag-kicker { margin: 0; letter-spacing: .16em; color: #9a9a90; font-size: 11px; }
+.personal-tag-panel h2 { margin: 8px 0 6px; font-size: 20px; font-weight: 400; }
+.personal-tag-copy { margin: 0 0 12px; font-size: 12px; line-height: 1.7; color: #a3a39b; }
+.personal-tag-block { margin: 0 0 12px; padding-bottom: 10px; border-bottom: 1px solid #3a3a34; }
+.personal-tag-block-kicker { margin: 0 0 6px; letter-spacing: .12em; color: #8d8d83; font-size: 11px; }
+.personal-tag-profile { display: grid; grid-template-columns: 7.2em 1fr; gap: 5px 10px; margin: 0; font-size: 12px; line-height: 1.5; }
+.personal-tag-profile dt { color: #8d8d83; }
+.personal-tag-profile dd { margin: 0; color: #d8d8cc; overflow-wrap: anywhere; }
+.personal-tag-choices { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; line-height: 1.55; color: #d8d8cc; }
+.personal-tag-choices .is-empty { color: #8d8d83; }
+.personal-tag-form { display: grid; gap: 12px; }
+.personal-tag-form label { display: grid; gap: 6px; font-size: 12px; letter-spacing: .08em; color: #c4c4b8; }
+.personal-tag-form textarea {
+  width: 100%; min-height: 72px; resize: vertical; border: 0; border-bottom: 1px solid #8b8b7e;
+  padding: 8px 4px; background: #121210; color: #e2e2d3; font: inherit; font-size: 13px; line-height: 1.65;
+}
+.personal-tag-actions { display: flex; align-items: center; gap: 12px; }
+.personal-tag-form button[type="submit"] {
+  border: 0; border-bottom: 1px solid #bcbcab; padding: 4px 0; background: none;
+  color: inherit; font: inherit; cursor: pointer;
+}
+.personal-tag-form button[type="submit"]:hover { color: #fff; }
+.personal-tag-form output { color: #8d8d83; font-size: 11px; }
+@media (max-width: 720px) {
+  .personal-tag { right: 4%; bottom: 18px; }
+  .personal-tag-panel { width: min(320px, 92vw); }
 }

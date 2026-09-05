@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { GardenActor, GARDEN_HOME, GARDEN_SOIL, gardenPath, pointOnPath } from './gardenActor'
+import { GardenActor, GARDEN_HOME, GARDEN_SOIL, BOARDING_DOOR, SHIP_HATCH, choicePads, gardenPath, pointOnPath, soilForAge } from './gardenActor'
 
 function finish(actor: GardenActor) {
   const events = []
@@ -32,6 +32,34 @@ describe('grounded garden actor', () => {
     const events = finish(actor)
     expect(events.some(e => e.type === 'seed')).toBe(false)
     expect(events.some(e => e.type === 'phase' && e.phase === 'touching')).toBe(true)
+  })
+  it('places later ages further along the walkable soil line', () => {
+    expect(soilForAge(0)).toEqual({ x: 520, y: 730 })
+    expect(soilForAge(30).x).toBeGreaterThan(soilForAge(10).x)
+    expect(soilForAge(80).y).toBe(730)
+  })
+  it('puts every choice on the right-side landing arc', () => {
+    expect(choicePads(2)).toHaveLength(2)
+    expect(choicePads(4)).toHaveLength(4)
+    expect(choicePads(3).every(pad => pad.x > 1360)).toBe(true)
+  })
+  it('walks to the hatch and boards without planting a seed', () => {
+    const actor = new GardenActor()
+    expect(actor.walkTo(BOARDING_DOOR)).toBe(true)
+    expect(actor.walkTo(BOARDING_DOOR)).toBe(false)
+    const events = finish(actor)
+    expect(events.some(e => e.type === 'seed')).toBe(false)
+    expect(events.filter(e => e.type === 'boarded')).toEqual([{ type: 'boarded' }])
+    expect(events.filter(e => e.type === 'phase').map(e => e.phase)).toContain('boarding')
+    expect(actor.busy).toBe(false)
+  })
+  it('returns to the hatch along the foreground lane', () => {
+    const route = gardenPath({ x: 1042, y: 730 }, BOARDING_DOOR)
+    expect(route[1]).toEqual({ x: 1345, y: 730 })
+    expect(route[2]).toEqual({ x: 1380, y: 682 })
+    expect(route.at(-1)).toEqual(BOARDING_DOOR)
+    expect(Math.abs(SHIP_HATCH.x - 82.06)).toBeLessThan(0.05)
+    expect(Math.abs(SHIP_HATCH.y - 56.11)).toBeLessThan(0.05)
   })
   it('cancels at current feet instead of teleporting home or committing a seed', () => {
     const actor = new GardenActor()

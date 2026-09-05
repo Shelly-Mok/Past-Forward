@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url'
 export const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 // Intentionally omit work outputs, screenshots, browser state, dependencies and builds.
 export const releaseEntries = [
-  '.github', '.gitignore', '.gitattributes', 'AGENTS.md', 'README.md',
+  '.github', '.gitignore', '.gitattributes', '.codex', 'AGENTS.md', 'README.md',
   'index.html', 'package.json', 'pnpm-lock.yaml', 'tsconfig.json',
-  'playwright.config.ts', 'vitest.config.ts',
-  'src', 'public', 'docs', 'scripts', 'tests', 'asset-sources',
+  'playwright.config.ts', 'vitest.config.ts', 'vite.config.ts',
+  'src', 'public', 'docs', 'scripts', 'server', 'tests', 'asset-sources',
 ]
 export async function releaseFiles() {
   const files = []

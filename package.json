@@ -11,12 +11,18 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "start": "node server/serve.mjs",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:flow": "playwright test tests/opening-to-archive.spec.ts",
     "verify": "pnpm check && pnpm test && pnpm build && pnpm release:check",
-    "release:check": "node scripts/check-release.mjs"
+    "release:check": "node scripts/check-release.mjs",
+    "zhihu:skill": "node scripts/install-zhihu-skill.mjs",
+    "zhihu:setup": "node scripts/zhihu-setup.mjs",
+    "zhihu:status": "node scripts/zhihu-status.mjs",
+    "zhihu:auth": "node scripts/zhihu-auth.mjs",
+    "zhihu:verify": "node scripts/zhihu-verify.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

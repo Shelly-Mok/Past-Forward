@@ -2,7 +2,7 @@
 
 三幕联通的黑白像素浏览器游戏前端：海边靠近月球 → 月球回溯与穿梭 → 月面档案局五问／审查／开门 → 玩家走进门 → 全白过渡 → 月面人生花园。
 
-**交接基线：2026-09-03。当前是可玩的前端框架，不是已经接通真实人生模型的完整产品。** 花园包含人物走近、播种、16关键帧连续生长、年龄时间线和本机记录。检索、时代背景、相近人物、选择后果与服务端存储由队友后续接入。
+**交接基线：2026-09-05。** 三幕前端可玩；裂隙帖子已接知乎公开搜索。花园时间线、选项和本地画像仍是作者骨架，接口失败时回退演示帖。Access Secret 只在本机 CLI / 后端使用，不进前端。
 
 ## 先看哪里
 
@@ -13,6 +13,7 @@
 | 本地项目怎样上传 GitHub | [仓库上传说明](docs/GITHUB_UPLOAD.md) |
 | 素材、动画、生成源文件 | [素材索引](docs/ASSET_INDEX.md) |
 | 如何验收和演示 | [验收清单](docs/ACCEPTANCE.md) |
+| 本仓库独立配置知乎 CLI / Access Secret | [知乎接口配置](docs/ZHIHU_SETUP.md) |
 
 ## 队友第一次运行
 
@@ -26,13 +27,24 @@ pnpm install --frozen-lockfile
 pnpm dev --host 127.0.0.1 --port 4174 --strictPort
 ```
 
-打开 http://127.0.0.1:4174/ 从第一幕开始。电脑横屏是主要演示形态。
+打开 http://127.0.0.1:4174/ 从第一幕开始。电脑横屏是主要演示形态。查看当前能访问的知乎信息：http://127.0.0.1:4174/?zhihu=access
+
+本仓库自带官方 `zhihu` Skill 和本地 `/api/*` 后端，不依赖外层 `zhihu-demo`。第一次要调真实知乎内容时：
+
+```sh
+pnpm zhihu:setup
+pnpm zhihu:auth
+pnpm zhihu:verify
+```
+
+Access Secret 只进本机钥匙串，步骤见 [知乎接口配置](docs/ZHIHU_SETUP.md)。`pnpm dev` 和 `pnpm start` 都会把 `/api/*` 接到项目内的官方 CLI。密钥不进仓库。自动化测试默认 `VITE_ZHIHU_LIVE=0`，避免消耗搜索额度。生产构建后可用 `pnpm start` 同时提供静态页和接口。
 
 | 地址 | 用途 |
 | --- | --- |
 | `/` | 正式完整三幕入口 |
 | `/?scene=archive` 或 `/?debug=archive` | 第二幕开发预览，会开始新的登记流程 |
-| `/?scene=garden` 或 `/?debug=garden` | 第三幕开发预览，按当前浏览器保存恢复；没有资料则明确提示缺失 |
+| `/?scene=garden` | 第三幕续玩：按当前浏览器保存恢复；没有资料则明确提示缺失 |
+| `/?debug=garden` | 测试直接进入第三幕：演示资料、新开一局，不走前两幕。可加 `&age=22&rewind=18岁` |
 
 不要把花园调试链接当作完整游戏的首页。不要直接双击index.html，需要通过本地服务器访问。
 
@@ -56,7 +68,7 @@ pnpm test:e2e
 ## 项目边界
 
 - 技术：TypeScript + Vite + Canvas/DOM；部分空间／门效果使用Three.js。不是React／Phaser项目。
-- 资料：第二幕sessionStorage；第三幕localStorage。仅在当前浏览器、当前站点保存，不会同步到队友电脑。
+- 资料：第二幕sessionStorage；第三幕localStorage（`life-backtest.garden.v2`）。仅在当前浏览器、当前站点保存，不会同步到队友电脑。
 - UI：零点小姐统一在左侧叙述；第二幕右下回答；第三幕花朵、年龄和人物实时绘制，不是整屏截图。
 - 当前并未从用户的三分钟视频自动提取或实现模型；本仓库只提供可承接队友模型的场景和上下文。
 - 不预测未来，不把模拟影像包装成真实人物经历。

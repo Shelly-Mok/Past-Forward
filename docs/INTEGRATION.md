@@ -37,15 +37,17 @@ type RewindTarget = {
   year: number | null
 }
 type GardenRecord = { age: number; text: string; recordedAt: string }
+type PlantedChoice = { age: number; choiceId: string }
 type GardenState = {
-  version: 1
+  version: 2
   profile: ArchiveProfile
   currentAge: number | null
   target: RewindTarget
   selectedAge: number
-  planted: number[]
+  planted: PlantedChoice[]
   records: GardenRecord[]
   recordedAt: string
+  reachedPresent: boolean
 }
 ```
 
@@ -56,7 +58,8 @@ type GardenState = {
 | `target.age` | 明确解析或由用户补充确认的回溯年龄 |
 | `target.year` | 原话明确是年份时保留；不能据此猜出生年 |
 | `selectedAge` | 此刻正在浏览的年龄，切时间线只改它，不改现实年龄和原始目标 |
-| `planted` | 已完成种植的章节索引0—7；不是具体年龄，也不是已作选择的列表 |
+| `planted` | 已种下的具体年龄与当时选择，按种植顺序；**不是**章节索引0—7。恢复时丢掉 `age > currentAge` 的项 |
+| `reachedPresent` | 是否已经走到现年、进入月面三岔口。档案室出门进入第三幕会新建花园，不沿用上一局的三岔口 |
 | `records` | 用户主动记下的文字；不是模型输出、现实事实核验或问答历史 |
 | `recordedAt` | 状态元数据；不要拿它当用户出生时间或推算历史年份 |
 
@@ -76,6 +79,8 @@ type GardenState = {
 | `life-backtest:archive-portal-ready` | `.archive-scene`元素 | 门开启完毕；`{ profile }` |
 | `life-backtest:archive-door-arrived` | `.archive-scene`元素 | 玩家主动走到门口；`{ profile }`；main.ts已监听并切第三幕 |
 | `life-backtest:garden-node-request` | `.garden-scene`元素，**向外冒泡** | 打开时间档案；下述上下文快照 |
+| `life-backtest:garden-rift-open` | `.garden-scene`元素，**向外冒泡** | 进入裂隙四页之一；`{ kind, ...GardenNodeContext }`。`kind` 为 `backtrack` / `forward` / `foresight` / `end`。帖子会先渲染本地骨架，再尝试水合知乎原文 |
+| `life-backtest:garden-rift-choice` | `.garden-scene`元素，**向外冒泡** | 回溯页点开一条未选择之路；`{ kind: 'backtrack', age, choiceId, source: 'zhihu' \| 'demo', ...GardenNodeContext }`。本地骨架由 `choicePostFor()` 装配，成功检索后回填 `.garden-rift-post` |
 
 注意：档案局事件默认不冒泡，不能只在document监听就期待收到；花园节点事件明确设置了bubbles。不要重复监听到门事件再执行第二次切幕。
 
@@ -90,14 +95,21 @@ type GardenNodeContext = {
   chapter: number
   mode: 'rewind' | 'future-exploration'
   records: GardenRecord[]
+  planted: PlantedChoice[]
+  reachedPresent: boolean
 }
 ```
 
 - 由`createGardenScene.ts`的`getContext()`生成structuredClone快照，修改detail不会反写前端状态。
 - 已知现实年龄且selectedAge大于currentAge时，mode为future-exploration。现实年龄未知时当前mode仍回退为rewind，**后端必须另外检查currentAge为null，不能因此认为已确认是过去**。
 - records只包含当前年龄及以前的用户笔记；并非默认同意将这些文字传给服务端。
-- 事件在打开时间档案时触发。仅悬停、单纯切时间节点、首次生长结束本身不会自动发送；已种章节再点击／左侧打开动作才进入档案。
+- `garden-node-request` 在打开时间档案时触发。仅悬停、单纯切时间节点、首次生长结束本身不会自动发送；已种章节再点击／左侧打开动作才进入档案。
+- `garden-rift-open` 在吸入转场结束后、裂隙页可见时触发。从裂隙内切到另一页（例如前进→前瞻）也会再发一次，`kind` 为新页。detail 是 structuredClone，修改不会反写前端。
 - “同代·相近选择”等按钮目前只打开待接入说明，尚未发出带signalType的服务请求。要实现人物匹配，需要队友新增这一层。
+- 裂隙帖子通过本仓库 `server/zhihu-bridge.mjs` 调用官方 CLI 的知乎搜索。接口失败时回退本地演示文案，并保留「演示内容 · 不是真实匹配结果」。知乎原文只使用公开搜索字段，不把生成头像或台词冒充真实用户。
+- 已实现：`GET /api/health`、`GET /api/zhihu/access`、`POST /api/life/match`、`GET /api/life/author`。本地预览打开 `/?zhihu=access` 可查看当前 Access Secret 能读到的创作、关注、收藏和搜索探针。
+- 「我的」数据属于 Access Secret 所属账号，不是玩家 OAuth 登录账号。第一版不调用直答，避免消耗 100 次/天额度。
+- CLI 与官方 Skill 已收进本仓库：`.codex/skills/zhihu`、`scripts/vendor/zhihu-cli-skill.zip`。`server/zhihu-bridge.mjs` 只从本项目 Skill / 本机 CLI 解析二进制，不再读取外层 `zhihu-demo`。配置步骤见 [知乎接口配置](ZHIHU_SETUP.md)。
 
 以下只演示接收现有上下文，不包含联网，也不要把实际个人信息打印到生产日志：
 
@@ -108,6 +120,10 @@ document.addEventListener('life-backtest:garden-node-request', event => {
   // 用户确认必要资料可以发送后，再调用自己的服务适配器。
   // 不在这里直接修改context.profile或写覆盖现有存档。
 })
+document.addEventListener('life-backtest:garden-rift-open', event => {
+  const detail = (event as CustomEvent<GardenNodeContext & { kind: 'backtrack' | 'forward' | 'foresight' | 'end' }>).detail
+  // 按 detail.kind 替换对应裂隙页的演示文案。不要把生成内容写成真实匹配。
+})
 ```
 
 ## 3. 本机保存和隐私
@@ -115,7 +131,7 @@ document.addEventListener('life-backtest:garden-node-request', event => {
 | 存储键 | 位置 | 内容 | 何时会丢失／变化 |
 | --- | --- | --- | --- |
 | `life-backtest.archive-profile` | sessionStorage | 当前第二幕五问原始资料 | 新一轮第二幕show/reset清除；会话结束也可能清除 |
-| `life-backtest.garden.v1` | localStorage | 五问快照、目标、所选年龄、种植和笔记 | 浏览器清站点数据；不同登记重新建状态；不同origin互不共享 |
+| `life-backtest.garden.v2` | localStorage | 五问快照、目标、所选年龄、种植选择链、笔记、是否已到现年 | 浏览器清站点数据；不同登记重新建状态；不同origin互不共享。启动时会清掉旧键 `life-backtest.garden.v1` |
 
 没有服务端登录、数据库或自动同步。当前是单份花园存档，不是多人账户系统；新登记与旧五项资料不一致时创建新花园，不能把上一个用户的进度套给新用户。正式多人场景应由队友设计账号/档案标识和迁移规则。
 
@@ -123,13 +139,15 @@ document.addEventListener('life-backtest:garden-node-request', event => {
 
 第三幕原始字段清理每项最多200字符；记录加载最多100条、每条500字符。清理不是身份验证，**服务器仍要独立校验全部输入**。用户文字只以textContent／表单值显示，不用未经处理的innerHTML渲染服务响应。
 
-## 4. 建议的后端对接顺序（尚未实现）
+## 4. 已接通的知乎检索，以及仍待做的节点服务
 
-先对接一个具体节点和一条平行人生分支，不需要一开始生成0—100岁全量内容。
+裂隙「未选择之路」和「TA 写过的」已对接 `POST /api/life/match` / `GET /api/life/author`：按年龄 + 选项构造 1–2 条知乎搜索，映射为 `ChoicePost`。花园时间线、种植选项和本地画像仍用作者文案，不把搜索作者直接替换成 NPC 名字。
+
+下一步仍建议只做一个具体年龄节点的问题／选项服务，不需要一开始生成 0—100 岁全量内容。
 
 ### A. 取回年龄节点
 
-建议服务方法：`loadLifeNode(request)`；HTTP名称可讨论，例如`POST /api/life/nodes/query`。**这个路径目前不存在**。
+建议服务方法：`loadLifeNode(request)`；HTTP名称可讨论，例如`POST /api/life/nodes/query`。**这个路径目前不存在**。年龄节点的问题与选项仍在前端 `gardenContent.ts`。
 
 建议请求包含：
 

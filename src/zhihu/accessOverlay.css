@@ -1,0 +1,84 @@
+.zhihu-access {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  overflow: auto;
+  color: #dcdcd7;
+  background: #050505f2;
+  font-family: "SimSun", "Songti SC", serif;
+}
+.zhihu-access-inner {
+  width: min(920px, calc(100vw - 48px));
+  margin: 36px auto 64px;
+}
+.zhihu-access-kicker,
+.zhihu-access-note,
+.zhihu-access-status {
+  color: #8d8d83;
+  letter-spacing: .12em;
+}
+.zhihu-access h1 {
+  font-size: 28px;
+  font-weight: 400;
+  margin: 12px 0 10px;
+}
+.zhihu-access-lead,
+.zhihu-access-note,
+.zhihu-access-status {
+  line-height: 1.7;
+}
+.zhihu-access-section {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid #3a3a34;
+}
+.zhihu-access-section h2 {
+  font-size: 18px;
+  font-weight: 400;
+  margin: 0 0 10px;
+}
+.zhihu-access-caps,
+.zhihu-access-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.zhihu-access-caps li,
+.zhihu-access-list li {
+  padding: 10px 12px;
+  border: 1px solid #3a3a34;
+  background: #0b0b0a;
+}
+.zhihu-access-caps .is-on strong { color: #ecece1; }
+.zhihu-access-caps .is-off strong { color: #8d8d83; }
+.zhihu-access-caps span,
+.zhihu-access-list p {
+  display: block;
+  margin: 6px 0 0;
+  color: #9a9a90;
+  line-height: 1.6;
+}
+.zhihu-access-list a,
+.zhihu-access-actions a,
+.zhihu-access-actions button {
+  color: #ecece1;
+}
+.zhihu-access-list a:hover { color: #fff; }
+.zhihu-access-list .is-empty { color: #8d8d83; }
+.zhihu-access-actions {
+  display: flex;
+  gap: 24px;
+  margin-top: 32px;
+}
+.zhihu-access-actions a,
+.zhihu-access-actions button {
+  font: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid #a5a59b;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.zhihu-access.is-reading .zhihu-access-actions button { display: none; }

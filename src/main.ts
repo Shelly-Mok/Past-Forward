@@ -1,10 +1,13 @@
 import './style.css'
 import { createArchiveScene } from './archive/createArchiveScene'
-import { createGardenScene, readArchiveProfile } from './garden/createGardenScene'
+import { createGardenScene, readArchiveProfile, writeArchiveProfile } from './garden/createGardenScene'
+import { createPersonalTag } from './outlook/createPersonalTag'
 import type { ArchiveProfile } from './archive/archiveInterview'
+import { debugGardenProfile } from './garden/gardenState'
 import { projectedDragProgress, resolveMoonRelease } from './game/input/moonDrag'
 import { sampleWarpTimeline, type WarpSample } from './game/transition/warpTimeline'
 import { createWarpField } from './render/createWarpField'
+import { mountAccessOverlay } from './zhihu/accessOverlay'
 
 const STAGE_WIDTH = 1672
 const STAGE_HEIGHT = 941
@@ -171,6 +174,7 @@ const startBacktest = document.querySelector<HTMLButtonElement>('.start-backtest
 const archiveSceneElement = document.querySelector<HTMLElement>('.archive-scene')!
 const archiveScene = createArchiveScene(archiveSceneElement)
 const gardenScene = createGardenScene(app)
+createPersonalTag(app)
 const gardenWhiteout = document.createElement('div')
 gardenWhiteout.className = 'garden-whiteout'
 gardenWhiteout.hidden = true
@@ -314,13 +318,13 @@ function enterArchive(entry: 'warp' | 'debug') {
   }, 1320)
 }
 
-function showGarden(profile?: ArchiveProfile) {
+function showGarden(profile?: ArchiveProfile, arrival: 'resume' | 'begin' = 'resume') {
   openingRuntimeActive = false
   cancelAnimationFrame(animationFrame)
   scene.style.display = 'none'
   scene.setAttribute('aria-hidden', 'true')
   archiveScene.hide()
-  gardenScene.show(profile)
+  gardenScene.show(profile, arrival)
   const url = new URL(window.location.href)
   url.searchParams.delete('debug')
   url.searchParams.set('scene', 'garden')
@@ -347,7 +351,7 @@ archiveSceneElement.addEventListener('life-backtest:archive-door-arrived', async
   await Promise.race([gardenScene.ready, delay(8000)])
   if (pageLeaving) return
   gardenScene.element.inert = true
-  showGarden(profile)
+  showGarden(profile, 'begin')
   await delay(reduced ? 120 : 550)
   if (pageLeaving) return
   gardenWhiteout.dataset.phase = 'revealing'
@@ -1069,8 +1073,21 @@ moonTarget.addEventListener('pointerenter', () => {
 })
 
 const requestedScene = new URLSearchParams(window.location.search)
-if (requestedScene.get('scene') === 'garden' || requestedScene.get('debug') === 'garden') showGarden(readArchiveProfile())
+if (requestedScene.get('zhihu') === 'access') mountAccessOverlay(document.body)
+if (requestedScene.get('debug') === 'garden') {
+  const profile = debugGardenProfile(requestedScene)
+  writeArchiveProfile(profile)
+  showGarden(profile, 'begin')
+} else if (requestedScene.get('scene') === 'garden') showGarden(readArchiveProfile())
 else if (requestedScene.get('debug') === 'archive' || requestedScene.get('scene') === 'archive') enterArchive('debug')
+
+if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+  const skip = document.createElement('nav')
+  skip.className = 'dev-scene-skip'
+  skip.setAttribute('aria-label', '本地测试入口')
+  skip.innerHTML = '<a href="/?zhihu=access">查看知乎权限</a><a href="/?debug=archive">测试第二幕</a><a href="/?debug=garden">测试第三幕</a>'
+  frame.append(skip)
+}
 moonTarget.addEventListener('pointerleave', () => {
   moonObserved = false
   delete scene.dataset.moon

@@ -8,7 +8,7 @@
 - Current player facts, target age, selected age and calendar year are distinct. Never infer a birth year or past family/employment facts from current age alone.
 - Real sources, inference, simulation and player-entered text must be distinguished. The teammate content model is NOT yet connected; do not fabricate real people, quotes or matching scores.
 - Browser profile and notes stay local unless the player explicitly agrees to send the necessary fields. Never put service secrets in frontend code or commit browser state.
-- Read docs/INTEGRATION.md for existing events and proposed service boundaries; proposed endpoints are not implemented APIs.
+- Read docs/INTEGRATION.md and docs/ZHIHU_SETUP.md for the Zhihu bridge. Official Skill lives in `.codex/skills/zhihu`; do not edit it. Resolve CLI from this project, not a sibling folder. `/api/life/match` and `/api/zhihu/access` are implemented; do not put Access Secret in frontend code, commits, or logs.
 - After changes run pnpm verify and pnpm test:e2e. Review screenshots of first action, mid-action, resolved state and recovery at desktop and narrow sizes.
 - Do not reset or overwrite existing remote history to upload this project. Confirm repository URL, branch and visibility first.
 

@@ -13,6 +13,7 @@ import {
   type ArchiveQuestion,
 } from './archiveInterview'
 import { ArchiveMovementGate } from './archiveMovementGate'
+import { clearGardenSave } from '../garden/gardenState'
 
 type ArchivePhase =
   | 'arrival'
@@ -915,6 +916,7 @@ export function createArchiveScene(scene: HTMLElement) {
     } catch {
       // Ignore storage restrictions; the in-memory profile is already clear.
     }
+    clearGardenSave()
     readyAt = performance.now() + (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 1050)
     held.clear()
     scene.classList.remove(

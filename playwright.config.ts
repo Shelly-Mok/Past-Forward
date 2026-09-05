@@ -26,5 +26,9 @@ export default defineConfig({
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
+    env: {
+      ...process.env,
+      VITE_ZHIHU_LIVE: '0',
+    },
   },
 })

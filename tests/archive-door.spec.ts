@@ -16,6 +16,19 @@ test('the archive waits for the profile and memory reel before opening the vault
     if (response.status() >= 400) failedResponses.push(`${response.status()} ${response.url()}`)
   })
 
+  await page.addInitScript(() => {
+    localStorage.setItem('life-backtest.garden.v2', JSON.stringify({
+      version: 2,
+      profile: { age: '24', gender: '不透露', family: '单身，与父母同住', status: '学生', rewind: '大学毕业前' },
+      currentAge: 24,
+      target: { raw: '大学毕业前', kind: 'stage', age: 18, year: null },
+      selectedAge: 24,
+      planted: [{ age: 18, choiceId: 'college' }, { age: 25, choiceId: 'second' }],
+      records: [],
+      recordedAt: '2026-01-01T00:00:00.000Z',
+      reachedPresent: true,
+    }))
+  })
   await page.setViewportSize({ width: 1536, height: 864 })
   await page.goto('/?debug=archive')
   await page.waitForTimeout(1_150)
@@ -91,7 +104,10 @@ test('the archive waits for the profile and memory reel before opening the vault
   const garden = page.locator('.garden-scene')
   await expect(garden).toBeVisible()
   await expect(scene).toBeHidden()
+  await expect(garden).toHaveAttribute('data-garden-phase', 'era')
   await expect(garden).toHaveAttribute('data-current-age', '24')
+  await expect(page.getByRole('button', { name: '25岁', exact: true })).toHaveCount(0)
+  await expect(page.locator('.garden-ground-flower')).toHaveCount(0)
   await expect(garden).toHaveAttribute('data-target-age', '')
   await expect(page.locator('.garden-note')).toContainText('大学毕业前')
   await page.getByRole('button', { name: '登记资料', exact: true }).click()
@@ -113,6 +129,27 @@ test('the archive waits for the profile and memory reel before opening the vault
   await expect(garden).toHaveAttribute('data-current-age', '24')
 
   expect({ consoleErrors, failedResponses }).toEqual({ consoleErrors: [], failedResponses: [] })
+})
+
+test('starting the archive discards the previous garden exit', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('life-backtest.garden.v1', '{"reachedPresent":true}')
+    localStorage.setItem('life-backtest.garden.v2', JSON.stringify({
+      version: 2,
+      profile: { age: '24', gender: '不透露', family: '单身，与父母同住', status: '学生', rewind: '大学毕业前' },
+      currentAge: 24,
+      target: { raw: '大学毕业前', kind: 'stage', age: 18, year: null },
+      selectedAge: 24,
+      planted: [{ age: 18, choiceId: 'college' }, { age: 25, choiceId: 'second' }],
+      records: [],
+      recordedAt: '2026-01-01T00:00:00.000Z',
+      reachedPresent: true,
+    }))
+  })
+  await page.goto('/?debug=archive')
+  await expect(page.locator('.archive-scene')).toHaveAttribute('data-phase', 'arrival')
+  expect(await page.evaluate(() => localStorage.getItem('life-backtest.garden.v1'))).toBeNull()
+  expect(await page.evaluate(() => localStorage.getItem('life-backtest.garden.v2'))).toBeNull()
 })
 
 test('the archive scene keeps the playfield readable at a narrower desktop size', async ({ page }) => {

@@ -15,13 +15,14 @@
 
 - `/?scene=archive` 或 `/?debug=archive`：进入第二幕。填写五问、观看人生审查、门完全打开后，按住 W／↑ 或前进按钮走到门口，自动过白屏进入第三幕。
 - `/?scene=garden`：直接预览第三幕。已有保存则恢复，没有登记则明确提示缺失，不伪造用户年龄。
+- `/?debug=garden`：测试入口，跳过前两幕，用标明为演示的资料新开第三幕。可加 `age` / `rewind` 参数。
 - 原首页海边 → 月球回溯 → 穿梭 → 档案室入口保留。
 
 ## 第二幕数据交接
 
 `createArchiveScene` 到达门口时发出 `life-backtest:archive-door-arrived`，携带 `detail.profile`。主入口把资料直接传入 `gardenScene.show(profile)`，不是从截图识别。
 
-资料字段继续使用 `age / gender / family / status / rewind`。第二幕原始数据仍保存在会话键 `life-backtest.archive-profile`；第三幕以 `life-backtest.garden.v1` 在本机保存一份登记快照及探索进度。不会自动上传。
+资料字段继续使用 `age / gender / family / status / rewind`。第二幕原始数据仍保存在会话键 `life-backtest.archive-profile`；第三幕以 `life-backtest.garden.v2` 在本机保存一份登记快照及探索进度（`planted` 为 `{ age, choiceId }[]`，另有 `reachedPresent`）。从档案室走进花园会新开一局，不接上一局三岔口；`/?scene=garden` 才续玩。不会自动上传。旧键 `life-backtest.garden.v1` 会在启动时清除。
 
 现实年龄 `currentAge`、原始回溯答案 `target.raw`、确认的回溯年龄 `target.age`、正在查看的年龄 `selectedAge` 分开保存。例如24岁／毕业前，先保留原话，再由用户确认18岁；现实年龄仍为24。
 
@@ -54,8 +55,12 @@
 - `selectedAge` 和 `chapter`：当前查看年龄、章节索引。
 - `mode`：`rewind` 或 `future-exploration`。
 - `records`：当前年龄及以前由玩家主动留下的笔记。
+- `planted`：已种下的 `{ age, choiceId }[]`。
+- `reachedPresent`：是否已进入月面三岔口。
 
-这是前端请求上下文，不是已经接通模型的网络接口。本次没有实现视频内的检索／推演系统，也没有结果回填或真实人物联系功能。队友后续可监听此事件、调用服务，并在现有时间档案面板接入问题、选项、时代背景及来源。来源事实、推断和生成叙述必须分开标记。确认接口授权与必要字段后再上传，不将本机笔记默认公开。
+种到现年后出现四颗像素小行星。进入裂隙页时另发出 `life-backtest:garden-rift-open`，`detail.kind` 为 `backtrack` / `forward` / `foresight` / `end`。四页文案均为演示，页面标明「演示内容 · 不是真实匹配结果」。
+
+这是前端请求上下文，不是已经接通模型的网络接口。本次没有实现视频内的检索／推演系统，也没有结果回填或真实人物联系功能。队友后续可监听此事件、调用服务，并在现有时间档案面板或裂隙页接入问题、选项、时代背景及来源。来源事实、推断和生成叙述必须分开标记。确认接口授权与必要字段后再上传，不将本机笔记默认公开。
 
 ## 素材来源
 
