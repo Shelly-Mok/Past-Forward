@@ -1,0 +1,88 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+:root { --background: #020304; --foreground: #edece5; --border: rgba(235,234,225,.28); --ring: rgba(255,255,255,.9); }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--background); }
+body { color: var(--foreground); font-family: "Noto Serif SC", "Songti SC", SimSun, serif; overflow: hidden; }
+button { font: inherit; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.experience { min-height: 100svh; display: grid; place-items: center; background: #000; overflow: hidden; }
+.stage { position: relative; width: min(100vw,133.86svh); height: min(100svh,74.705vw); overflow: hidden; isolation: isolate; background: #000; }
+.scene { position: absolute; inset: 0; transform-origin: 69% 53%; will-change: transform, opacity, filter; }
+.scene img { width: 100%; height: 100%; display: block; object-fit: fill; user-select: none; -webkit-user-drag: none; }
+.scene-moon-sky, .scene-moon-surface { z-index: 1; opacity: 1; }
+.scene-moon-sky { clip-path: polygon(0 0,100% 0,100% 55%,90% 55%,80% 55%,70% 55%,60% 57%,50% 59%,40% 62%,30% 66%,20% 72%,10% 80%,0 86%); }
+.scene-moon-surface { clip-path: polygon(0 86%,10% 80%,20% 72%,30% 66%,40% 62%,50% 59%,60% 57%,70% 55%,80% 55%,90% 55%,100% 55%,100% 100%,0 100%); }
+.phase-launch .scene-moon-surface, .phase-transit .scene-moon-surface { animation: surface-drop 4.25s cubic-bezier(.45,.04,.24,1) forwards; }
+.phase-arrived .scene-moon-sky, .phase-arrived .scene-moon-surface { opacity: 0; }
+.scene-space { z-index: 3; opacity: 0; pointer-events: none; }
+.phase-arrived .scene-space { opacity: 1; }
+.moon-effects { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+
+.hatch-door { position: absolute; z-index: 5; left: 69.35%; top: 49.55%; width: 8.1%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%,-50%); background-image: url('/穿梭_1.png'); background-size: 1234.5% 926%; background-position: 75.4% 55.6%; background-repeat: no-repeat; opacity: 0; transform-origin: 2% 50%; }
+.hatch-light { position: absolute; z-index: 4; left: 69.35%; top: 49.55%; width: 7.7%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%,-50%); background: radial-gradient(circle at 48% 48%,rgba(241,239,214,.58) 0 12%,rgba(18,20,19,.98) 48%,rgba(2,3,3,.96) 68%,transparent 72%); opacity: 0; }
+.phase-door-opening .hatch-door, .phase-boarding .hatch-door { opacity: .92; animation: hatch-open .82s ease-out forwards; }
+.phase-door-opening .hatch-light, .phase-boarding .hatch-light { opacity: 1; }
+.phase-sealing .hatch-door { opacity: .92; animation: hatch-close .8s ease-in forwards; }
+.phase-sealing .hatch-light { animation: light-out .8s ease-in forwards; }
+
+.astronaut-sprite { position: absolute; z-index: 4; left: 83.05%; top: 55.4%; width: 1.9%; height: 6.1%; background-image: url('/穿梭_1.png'); background-size: 5263% 1639%; background-position: 84.8% 58.5%; background-repeat: no-repeat; opacity: 1; filter: drop-shadow(0 0 3px #000); }
+.phase-boarding .astronaut-sprite { opacity: 1; animation: board-ship 1.6s cubic-bezier(.55,.08,.3,1) forwards; }
+.phase-sealing .astronaut-sprite, .phase-launch .astronaut-sprite, .phase-transit .astronaut-sprite, .phase-arrived .astronaut-sprite { opacity: 0; }
+
+.landed-ship-body { position: absolute; z-index: 2; inset: 0; opacity: 1; background: url('/穿梭_1.png') center/100% 100% no-repeat; mask-image: radial-gradient(ellipse 18% 11% at 66% 49.5%,#000 0 72%,transparent 100%); }
+.phase-launch .landed-ship-body { animation: landed-body-out .42s ease-in forwards; }
+.phase-transit .landed-ship-body, .phase-arrived .landed-ship-body { opacity: 0; }
+
+.landing-gear { position: absolute; z-index: 2; display: block; background-image: url('/穿梭_1.png'); background-repeat: no-repeat; opacity: 1; transform-origin: 50% 10%; }
+.landing-gear-left { left: 51.5%; top: 52%; width: 11%; height: 13%; background-size: 909% 769%; background-position: 57.9% 59.8%; }
+.landing-gear-ladder { left: 68%; top: 51.5%; width: 10%; height: 15%; background-size: 1000% 667%; background-position: 75.6% 60.6%; }
+.landing-gear-right { left: 75%; top: 53%; width: 8%; height: 12%; background-size: 1250% 833%; background-position: 81.5% 60.2%; }
+.phase-sealing .landing-gear { animation: retract-landing-gear .78s cubic-bezier(.6,.02,.3,1) forwards; }
+.phase-launch .landing-gear, .phase-transit .landing-gear, .phase-arrived .landing-gear { opacity: 0; transform: scaleY(.04); }
+
+.flying-ship { position: absolute; z-index: 3; inset: 0; opacity: 0; background: url('/穿梭_2.png') center/100% 100% no-repeat; mask-image: radial-gradient(ellipse 18% 13% at 53.5% 58%,#000 0 70%,transparent 100%); transform-origin: 53.5% 58%; }
+.phase-launch .flying-ship, .phase-transit .flying-ship { opacity: 1; animation: fly-to-orbit 4.25s cubic-bezier(.38,.03,.2,1) forwards; }
+.phase-arrived .flying-ship { opacity: 0; }
+
+.planet-seeds { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.planet-seed { position: absolute; width: 12%; height: 14%; border-radius: 50%; background-image: url('/穿梭_2.png'); background-size: 833.33% 714.28%; background-repeat: no-repeat; transform: translate(-50%,-50%) scale(.014); filter: brightness(3) contrast(1.4); box-shadow: 0 0 5px rgba(255,255,255,.9); opacity: .82; }
+.phase-launch .planet-seed, .phase-transit .planet-seed { animation: grow-planet 4.25s cubic-bezier(.18,.7,.24,1) forwards; }
+.phase-arrived .planet-seed { opacity: 0; }
+
+.port { position: absolute; z-index: 6; border: 1px solid transparent; border-radius: 50%; background: transparent; transform: translate(-50%,-50%); cursor: pointer; touch-action: manipulation; }
+.port::before, .port::after { content: ''; position: absolute; inset: 9%; border-radius: inherit; border: 1px solid rgba(248,247,235,.88); opacity: 0; transform: scale(.55); transition: opacity .25s ease,transform .25s ease; }
+.port::after { inset: 23%; border-style: dotted; transition-delay: 40ms; }
+.port:hover::before, .port:hover::after, .port:focus-visible::before, .port:focus-visible::after { opacity: 1; transform: scale(1); }
+.port:focus-visible { outline: 1px solid white; outline-offset: 3px; }
+.port:disabled { cursor: default; }
+.port:disabled::before, .port:disabled::after { display: none; }
+.flower-port { width: clamp(44px,5vw,76px); aspect-ratio: 1; }
+.planet-port { width: clamp(72px,9vw,150px); aspect-ratio: 1; opacity: 0; pointer-events: none; }
+.phase-arrived .planet-port { opacity: 1; pointer-events: auto; animation: port-ready 1.8s ease-in-out infinite; }
+.phase-transit .flower-ports, .phase-arrived .flower-ports { opacity: 0; pointer-events: none; }
+
+.status { position: absolute; z-index: 8; left: 50%; bottom: clamp(24px,4vh,54px); display: flex; align-items: center; gap: .62rem; transform: translateX(-50%); padding: .58rem .86rem; border: 1px solid rgba(255,255,255,.16); background: rgba(0,0,0,.48); color: rgba(247,246,237,.82); font-size: clamp(.78rem,1.1vw,.96rem); letter-spacing: .12em; backdrop-filter: blur(8px); white-space: nowrap; }
+.status small { color: rgba(255,255,255,.48); font-size: .72em; }
+.status-dot { width: .38rem; height: .38rem; border-radius: 50%; background: #e8e5d8; box-shadow: 0 0 10px white; }
+.phase-idle .status { animation: status-breathe 2.8s ease-in-out infinite; }
+.reset { position: absolute; z-index: 8; left: clamp(24px,5.3vw,76px); bottom: clamp(23px,10.4vh,112px); display: flex; align-items: center; gap: .75rem; border: 0; padding: .4rem; color: rgba(236,234,221,.62); background: transparent; font-size: clamp(.72rem,.9vw,.88rem); cursor: pointer; }
+.reset:hover { color: white; }
+.reset kbd { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border: 1px solid currentColor; font: inherit; }
+
+@keyframes hatch-open { from { transform: translate(-50%,-50%) perspective(500px) rotateY(0); } to { transform: translate(-50%,-50%) perspective(500px) rotateY(-78deg); } }
+@keyframes hatch-close { from { transform: translate(-50%,-50%) perspective(500px) rotateY(-78deg); } to { transform: translate(-50%,-50%) perspective(500px) rotateY(0); opacity: 0; } }
+@keyframes light-out { to { opacity: 0; transform: translate(-50%,-50%) scale(.5); } }
+@keyframes board-ship { 0% { transform: translate(0,0); } 12% { transform: translate(-92%,-12%); } 24% { transform: translate(-184%,-24%); } 36% { transform: translate(-276%,-36%); } 48% { transform: translate(-368%,-48%); } 60% { transform: translate(-460%,-60%); } 72% { transform: translate(-552%,-72%); } 84% { opacity: 1; transform: translate(-644%,-84%) scale(.9); } 100% { opacity: 0; transform: translate(-725%,-96%) scale(.58); } }
+@keyframes retract-landing-gear { 0% { opacity: 1; transform: translateY(0) scaleY(1); } 72% { opacity: .9; } 100% { opacity: 0; transform: translateY(-3.2%) scaleY(.04); } }
+@keyframes landed-body-out { to { opacity: 0; } }
+@keyframes surface-drop { 0% { transform: translateY(0); } 100% { transform: translateY(72%); } }
+@keyframes fly-to-orbit { 0% { transform: translate(13.2%,-7%) scale(1.24); } 26% { transform: translate(9.7%,-9.5%) scale(1.13); } 58% { transform: translate(5.5%,-6%) scale(.98); } 100% { transform: translate(0,0) scale(1); } }
+@keyframes grow-planet { 0% { transform: translate(-50%,-50%) scale(.014); filter: brightness(3) contrast(1.4); opacity: .82; } 18% { transform: translate(-50%,-50%) scale(.045); } 55% { filter: brightness(1.6) contrast(1.15); opacity: .92; } 100% { transform: translate(-50%,-50%) scale(1); filter: brightness(1) contrast(1); opacity: 1; box-shadow: 0 0 0 transparent; } }
+@keyframes port-ready { 50% { filter: drop-shadow(0 0 9px rgba(255,255,255,.7)); } }
+@keyframes status-breathe { 50% { border-color: rgba(255,255,255,.36); } }
+
+@media (max-aspect-ratio: 1/1) { .status, .reset { bottom: 2%; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
