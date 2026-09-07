@@ -119,5 +119,5 @@ export function createPersonalTag(host: HTMLElement) {
     close()
   })
   fill()
-  return { open, close }
+  return { element: root, open, close }
 }

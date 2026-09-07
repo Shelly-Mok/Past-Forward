@@ -42,6 +42,7 @@ export function mapSearchItem(item: ZhihuSearchItem, age: number, choiceId: stri
     paragraphs: paragraphs.length ? paragraphs : [plainText(body, 240) || '这篇公开回答与当前选择相近。'],
     votes: [votes ? `${votes} 赞同` : '', authority].filter(Boolean).join(' · ') || '知乎原文',
     href: String(item.Url || 'https://www.zhihu.com'),
+    avatar: String(item.AuthorAvatar || '').trim() || undefined,
   }
 }
 

@@ -45,7 +45,8 @@ pnpm dev --host 127.0.0.1 --port 4174 --strictPort
 | --- | --- |
 | `GET /api/health` | CLI 是否找到、Access Secret 是否已配置 |
 | `GET /api/zhihu/access` | 探测创作、关注、收藏、知识库、搜索和热榜 |
-| `POST /api/life/match` | 按关键词做知乎公开搜索，供裂隙帖子水合 |
+| `POST /api/life/match` | 按关键词做知乎公开搜索，供裂隙帖子与人物对照水合 |
+| `POST /api/life/nodes/query` | 按年龄节点发现可能的选择（与 match 共用搜索） |
 | `GET /api/life/author` | 按作者名 + 提示词搜索 |
 
 前端裂隙页会先画本地演示帖，再请求上述接口。成功后替换为知乎原文链接和摘要；失败保留「演示内容 · 不是真实匹配结果」。自动化测试默认 `VITE_ZHIHU_LIVE=0`，不消耗搜索额度。

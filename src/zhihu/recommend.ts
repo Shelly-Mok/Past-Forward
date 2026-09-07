@@ -1,0 +1,479 @@
+import { eraChoice, eraNodeForAge, flowerKindAt, type EraChoice, type EraNpc } from '../garden/gardenContent'
+import type { ArchiveProfile } from '../archive/archiveInterview'
+import type { PlantedChoice, RewindTarget } from '../garden/gardenState'
+import { plainText, scoreSearchItem } from './mapPost'
+import type { ZhihuSearchItem } from './types'
+
+/** Only fields the player already typed or planted. Never infer a birth year. */
+export type JourneyContext = {
+  selectedAge: number
+  currentAge: number | null
+  /** Explicit calendar year from the archive answer, if the player said one. */
+  calendarYear: number | null
+  profile: Pick<ArchiveProfile, 'family' | 'status' | 'rewind'>
+  planted: Array<PlantedChoice & { label?: string }>
+  /** Future OAuth: follow / favorite titles the player agreed to send. */
+  playerTopics?: string[]
+}
+
+export type MatchExplain = {
+  /** One spoken sentence: why this person showed up. */
+  headline: string
+  /** Era backdrop + the choice they made then. Not a retrieval log. */
+  story: string
+  quote: string
+}
+
+export type DiscoveredChoice = {
+  patternId: string
+  label: string
+  hits: number
+  sampleTitle: string
+}
+
+export type ChoicePattern = {
+  id: string
+  label: string
+  keywords: string[]
+  minAge: number
+  maxAge: number
+  /** If set, node search will actively look for this fork when the skeleton omitted it. */
+  probe?: boolean
+}
+
+/**
+ * Life forks that authored nodes do not exhaust.
+ * Hits come from Zhihu search titles/summaries, not from a hidden option list the player must invent.
+ */
+export const LIFE_CHOICE_PATTERNS: ChoicePattern[] = [
+  { id: 'leftbehind', label: '留守，由祖辈或亲戚带大', keywords: ['留守', '爷爷奶奶', '外公外婆'], minAge: 0, maxAge: 12 },
+  { id: 'single', label: '在单亲家庭里被带大', keywords: ['单亲', '一个人带大'], minAge: 0, maxAge: 16 },
+  { id: 'adopt', label: '被收养 / 福利院', keywords: ['收养', '福利院', '孤儿'], minAge: 0, maxAge: 12 },
+  { id: 'preterm', label: '早产，先在医院待很久', keywords: ['早产', '保温箱'], minAge: 0, maxAge: 6 },
+  { id: 'wushu', label: '去武校', keywords: ['武校', '习武', '武术学校'], minAge: 4, maxAge: 16, probe: true },
+  { id: 'sports-school', label: '去体校', keywords: ['体校', '体育学校', '去体校'], minAge: 10, maxAge: 18, probe: true },
+  { id: 'medical-school', label: '去卫校', keywords: ['卫校', '医校', '医专', '卫生学校'], minAge: 14, maxAge: 20, probe: true },
+  { id: 'army', label: '去当兵 / 入伍', keywords: ['当兵', '入伍', '参军', '军营', '服役'], minAge: 16, maxAge: 28 },
+  { id: 'abroad', label: '出国留学 / 出境', keywords: ['出国', '留学', '海外', '交换生'], minAge: 16, maxAge: 40 },
+  { id: 'startup', label: '创业 / 自己干', keywords: ['创业', '自己干', '开公司', '工作室'], minAge: 18, maxAge: 50 },
+  { id: 'gap', label: '间隔年 / 先空一年', keywords: ['间隔年', 'gap year', '空一年', 'gap'], minAge: 16, maxAge: 30 },
+  { id: 'transfer', label: '转专业 / 换方向', keywords: ['转专业', '换专业', '转系'], minAge: 18, maxAge: 26 },
+  { id: 'dropout', label: '退学 / 离开校园', keywords: ['退学', '肄业', '离开学校'], minAge: 16, maxAge: 30 },
+  { id: 'civil', label: '考公 / 事业编', keywords: ['考公', '公务员', '事业编', '体制内'], minAge: 20, maxAge: 40 },
+  { id: 'graduate', label: '考研 / 读研', keywords: ['考研', '读研', '研究生', '二战'], minAge: 20, maxAge: 35 },
+  { id: 'return-hometown', label: '回老家 / 离开一线', keywords: ['回老家', '返乡', '离开北上广'], minAge: 22, maxAge: 45 },
+  { id: 'marry', label: '结婚 / 成家', keywords: ['结婚', '成家', '领证'], minAge: 22, maxAge: 45 },
+  { id: 'child', label: '要不要孩子', keywords: ['要孩子', '生育', '生不生'], minAge: 25, maxAge: 45 },
+  { id: 'layoff', label: '被裁后怎么走', keywords: ['被裁', '裁员', '优化'], minAge: 22, maxAge: 60 },
+  { id: 'house', label: '买房 / 安一个住处', keywords: ['买房', '首付', '房贷'], minAge: 25, maxAge: 45 },
+  { id: 'divorce', label: '离婚 / 分开过', keywords: ['离婚'], minAge: 25, maxAge: 55 },
+  { id: 'second-child', label: '要不要二胎', keywords: ['二胎', '二孩'], minAge: 28, maxAge: 45 },
+  { id: 'eldercare', label: '照料父母', keywords: ['照料父母', '伺候生病'], minAge: 35, maxAge: 70 },
+  { id: 'early-retire', label: '提前退 / 内退', keywords: ['提前退休', '内退'], minAge: 45, maxAge: 60 },
+  { id: 'widow', label: '丧偶之后怎么过', keywords: ['丧偶', '老伴走了'], minAge: 50, maxAge: 90 },
+  { id: 'nursing', label: '去养老院 / 请护工', keywords: ['养老院', '护工'], minAge: 70, maxAge: 95 },
+]
+
+export function journeyContext(input: {
+  selectedAge: number
+  currentAge: number | null
+  target?: RewindTarget | null
+  profile?: ArchiveProfile
+  planted?: PlantedChoice[]
+  playerTopics?: string[]
+}): JourneyContext {
+  return {
+    selectedAge: input.selectedAge,
+    currentAge: input.currentAge,
+    calendarYear: input.target?.year ?? null,
+    profile: {
+      family: input.profile?.family,
+      status: input.profile?.status,
+      rewind: input.profile?.rewind,
+    },
+    planted: (input.planted ?? []).map(item => ({
+      ...item,
+      label: item.label?.trim() || eraChoice(item.age, item.choiceId)?.label,
+    })),
+    playerTopics: (input.playerTopics ?? []).map(item => item.trim()).filter(Boolean).slice(0, 6),
+  }
+}
+
+export function plantedLabel(item: JourneyContext['planted'][number]): string {
+  return item.label || eraChoice(item.age, item.choiceId)?.label || item.choiceId
+}
+
+function compact(parts: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const part of parts) {
+    const text = plainText(part, 40)
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    out.push(text)
+  }
+  return out
+}
+
+export function journeyKeywords(ctx: JourneyContext): string[] {
+  const last = ctx.planted.at(-1)
+  return compact([
+    ...ctx.planted.map(plantedLabel),
+    ctx.profile.status,
+    ctx.profile.family,
+    ctx.profile.rewind,
+    ...(ctx.playerTopics ?? []),
+    last ? `${last.age}岁` : '',
+  ])
+}
+
+function clipQuery(value: string): string {
+  return plainText(value, 40)
+}
+
+/** 舞校算在艺校/艺考里，搜索里再单独长一朵就重复了。 */
+const FORK_COVERED_BY: Record<string, string[]> = {
+  舞校: ['艺校', '艺考'],
+  舞蹈: ['艺校', '艺考'],
+  跳舞: ['艺校', '艺考'],
+}
+
+function authoredCovers(label: string, authoredText: string): boolean {
+  if (!label) return false
+  if (authoredText.includes(label)) return true
+  return (FORK_COVERED_BY[label] ?? []).some(parent => authoredText.includes(parent))
+}
+
+function discoveryProbes(ctx: JourneyContext): string[] {
+  const authoredText = eraNodeForAge(ctx.selectedAge).choices.map(item => item.label).join(' ')
+  return LIFE_CHOICE_PATTERNS
+    .filter(pattern => pattern.probe)
+    .filter(pattern => ctx.selectedAge >= pattern.minAge && ctx.selectedAge <= pattern.maxAge)
+    .filter(pattern => !pattern.keywords.some(word => authoredCovers(word, authoredText) || authoredText.includes(word)))
+    .map(pattern => `${ctx.selectedAge}岁 ${pattern.keywords[0]}`)
+    .slice(0, 1)
+}
+
+function priorPlanted(ctx: JourneyContext, beforeAge = ctx.selectedAge) {
+  return ctx.planted.filter(item => item.age < beforeAge)
+}
+
+/** Earliest ~0.75, latest ~2.0. One plant still counts as the recent end. */
+export function recencyWeight(index: number, total: number): number {
+  if (total <= 1) return 2
+  return 0.75 + 1.25 * (index / (total - 1))
+}
+
+export function journeyDepth(ctx: JourneyContext): number {
+  return Math.min(1, ctx.planted.length / 4)
+}
+
+/** How we search for a year's possible forks — age + era + the path already planted. */
+export function nodeDiscoveryQueries(ctx: JourneyContext, authoredEvent: string): string[] {
+  const age = ctx.selectedAge
+  const prior = priorPlanted(ctx, age)
+  const last = prior.at(-1)
+  const prev = prior.at(-2)
+  const lastLabel = last ? plantedLabel(last) : ''
+  const event = clipQuery(authoredEvent) || '人生选择'
+  const probe = discoveryProbes(ctx)[0] || ''
+  return compact([
+    lastLabel ? `${age}岁 ${clipQuery(lastLabel)} 之后 ${event}` : `${age}岁 ${event}`,
+    probe,
+    ctx.calendarYear ? `${ctx.calendarYear}年 ${age}岁` : `${age}岁 选择 还是`,
+    prev ? `${age}岁 ${clipQuery(plantedLabel(prev))} ${clipQuery(lastLabel)}` : '',
+    ctx.profile.status ? `${age}岁 ${clipQuery(ctx.profile.status)}` : '',
+    ctx.playerTopics?.[0] ? `${age}岁 ${clipQuery(ctx.playerTopics[0])}` : '',
+  ]).slice(0, 3)
+}
+
+/** How we search for a person after the player plants a choice. Later plants push recent forks into the query. */
+export function companionQueries(
+  ctx: JourneyContext,
+  choiceLabel: string,
+  kind: 'same-era' | 'cross-era' | 'author',
+  authorName = '',
+): string[] {
+  const age = ctx.selectedAge
+  const choice = clipQuery(choiceLabel)
+  const recent = priorPlanted(ctx, age).slice(-3).reverse()
+  const recentLabels = recent.map(item => clipQuery(plantedLabel(item))).filter(Boolean)
+  if (kind === 'author') return compact([authorQueryFor(authorName, choice || `${age}岁`)])
+  if (kind === 'cross-era') {
+    return compact([
+      recentLabels[0] ? `${recentLabels[0]} 之后 ${choice} 后来怎样` : `${choice} 后来怎样`,
+      `${choice} 值不值`,
+      recentLabels[1] ? `${recentLabels[1]} ${choice}` : '',
+    ]).slice(0, recentLabels.length >= 2 ? 3 : 2)
+  }
+  const limit = recentLabels.length >= 2 ? 3 : 2
+  return compact([
+    recentLabels[0] ? `${age}岁 ${recentLabels[0]} ${choice}` : '',
+    ctx.calendarYear ? `${ctx.calendarYear}年 ${age}岁 ${choice}` : `${age}岁 ${choice} 经验`,
+    recentLabels[1] ? `${recentLabels[1]} 之后 ${choice}` : `${age}岁 ${choice} 后来`,
+    ctx.profile.status ? `${age}岁 ${choice} ${clipQuery(ctx.profile.status)}` : '',
+  ]).slice(0, limit)
+}
+
+export function authorQueryFor(author: string, hint: string): string {
+  const name = author.trim()
+  const extra = hint.trim()
+  return extra ? `${name} ${extra}` : name
+}
+
+export function itemBlob(item: ZhihuSearchItem): string {
+  return [item.Title, item.ContentText, item.Summary, item.Author?.Headline, item.AuthorBadgeText]
+    .map(value => plainText(value, 400))
+    .filter(Boolean)
+    .join(' ')
+}
+
+export function discoverTitleForks(items: ZhihuSearchItem[], authored: EraChoice[]): DiscoveredChoice[] {
+  const authoredText = authored.map(item => `${item.id} ${item.label}`).join(' ')
+  const found: DiscoveredChoice[] = []
+  const seen = new Set<string>()
+  const consider = (raw: string, item: ZhihuSearchItem) => {
+    const clean = plainText(raw, 16).replace(/[？?！!，,。.\s]+$/g, '')
+    if (clean.length < 2 || clean.length > 16 || authoredCovers(clean, authoredText) || seen.has(clean)) return
+    seen.add(clean)
+    found.push({
+      patternId: `live-${clean.replace(/\s+/g, '').slice(0, 12)}`,
+      label: clean,
+      hits: 1,
+      sampleTitle: plainText(item.Title, 60) || clean,
+    })
+  }
+  for (const item of items) {
+    const title = plainText(item.Title, 80)
+    for (const match of title.matchAll(/(?:我(?:选了|选择了|去了|决定)|选择了|决定去了?)([\u4e00-\u9fffA-Za-z0-9·]{2,14})/g)) {
+      consider(match[1], item)
+    }
+    const pair = title.match(/([\u4e00-\u9fff]{2,8})还是([\u4e00-\u9fff]{2,8})/)
+    if (pair) {
+      consider(pair[1], item)
+      consider(pair[2], item)
+    }
+  }
+  return found.slice(0, 2)
+}
+
+export function discoverChoices(items: ZhihuSearchItem[], ctx: JourneyContext, authored: EraChoice[]): DiscoveredChoice[] {
+  const authoredText = authored.map(item => `${item.id} ${item.label}`).join(' ')
+  const found: DiscoveredChoice[] = []
+  for (const pattern of LIFE_CHOICE_PATTERNS) {
+    if (ctx.selectedAge < pattern.minAge || ctx.selectedAge > pattern.maxAge) continue
+    if (pattern.keywords.some(word => authoredCovers(word, authoredText) || authoredText.includes(word))) continue
+    const hits = items.filter(item => pattern.keywords.some(word => itemBlob(item).includes(word)))
+    if (!hits.length) continue
+    found.push({
+      patternId: pattern.id,
+      label: pattern.label,
+      hits: hits.length,
+      sampleTitle: plainText(hits[0]?.Title, 60) || pattern.label,
+    })
+  }
+  for (const extra of discoverTitleForks(items, authored)) {
+    if (found.some(item => item.label.includes(extra.label) || extra.label.includes(item.label))) continue
+    found.push(extra)
+  }
+  return found.sort((a, b) => b.hits - a.hits).slice(0, 3)
+}
+
+function pickSentence(text: string, needles: string[]): string {
+  const clean = plainText(text, 600)
+  const parts = clean.split(/(?<=[。！？!?；;])/).map(part => part.trim()).filter(part => part.length >= 8)
+  const hit = parts.find(part => needles.some(word => word && part.includes(word)))
+  return (hit || parts[0] || clean).slice(0, 72)
+}
+
+function overlapWords(blob: string, keywords: string[]): string[] {
+  return keywords.filter(word => word.length >= 2 && blob.includes(word)).slice(0, 4)
+}
+
+export function authorAvatar(item: ZhihuSearchItem): string {
+  return String(item.AuthorAvatar || '').trim()
+}
+
+function eraBackdrop(ctx: JourneyContext): string {
+  return plainText(eraNodeForAge(ctx.selectedAge).era, 80)
+}
+
+function eraWhen(ctx: JourneyContext, item?: ZhihuSearchItem): string {
+  if (ctx.calendarYear && item?.EditTime) {
+    const published = new Date(item.EditTime * 1000).getFullYear()
+    const delta = Math.abs(published - ctx.calendarYear)
+    if (delta <= 3) return `${ctx.calendarYear} 年前后，大约 ${ctx.selectedAge} 岁。`
+    return `${published} 年写下的经历，和 ${ctx.calendarYear} 年不是同一代空气，选择却同类。`
+  }
+  if (ctx.calendarYear) return `${ctx.calendarYear} 年前后。`
+  return ''
+}
+
+function labelHits(blob: string, label: string): boolean {
+  if (!label) return false
+  if (blob.includes(label)) return true
+  const bits = compact(label.split(/[/\s、]+/).filter(word => word.length >= 2))
+  return bits.some(word => blob.includes(word))
+}
+
+function whyMeet(hits: string[], ctx: JourneyContext, choiceLabel: string, author: string): string {
+  const last = ctx.planted.at(-1)
+  const lastName = last ? plantedLabel(last) : ''
+  if (last && lastName !== choiceLabel && (hits.includes(lastName) || labelHits(hits.join(''), lastName))) {
+    return `${author} 也从「${lastName}」走到了「${choiceLabel}」。`
+  }
+  if (labelHits(hits.join(' ') + choiceLabel, choiceLabel) && hits.some(word => choiceLabel.includes(word))) {
+    return `同一年，${author} 也站在「${choiceLabel}」这一侧。`
+  }
+  if (ctx.profile.status && hits.some(word => ctx.profile.status!.includes(word) || word.includes(plainText(ctx.profile.status, 8)))) {
+    return `近况挨着：你写下「${plainText(ctx.profile.status, 16)}」，${author} 也在过相近的日子。`
+  }
+  if (ctx.profile.family && hits.some(word => ctx.profile.family!.includes(word) || word.includes(plainText(ctx.profile.family, 8)))) {
+    return `近况挨着：你写下「${plainText(ctx.profile.family, 16)}」，${author} 也在过相近的日子。`
+  }
+  if (hits.length) return `你们对上的是「${hits.slice(0, 2).join('、')}」。`
+  return `同一年，${author} 也面对过「${choiceLabel}」。`
+}
+
+export function explainMatch(item: ZhihuSearchItem, ctx: JourneyContext, choiceLabel: string): MatchExplain {
+  const blob = itemBlob(item)
+  const choiceBits = compact(choiceLabel.split(/[/\s、]+/).filter(word => word.length >= 2))
+  const keywords = compact([choiceLabel, ...choiceBits, ...journeyKeywords(ctx)])
+  const hits = overlapWords(blob, keywords)
+  const quote = pickSentence(String(item.ContentText || item.Summary || item.Title || ''), hits.length ? hits : keywords)
+  const author = plainText(item.AuthorName || item.Author?.Name, 20) || '这位答主'
+  const body = pickSentence(String(item.ContentText || item.Summary || ''), choiceBits.length ? choiceBits : keywords)
+  const story = [eraWhen(ctx, item), eraBackdrop(ctx), body || `当时摆在面前的，是要不要走「${choiceLabel}」。`, `TA 选了「${choiceLabel}」。`]
+    .filter(Boolean)
+    .join('')
+    .replace(/。{2,}/g, '。')
+  return {
+    headline: whyMeet(hits, ctx, choiceLabel, author),
+    story,
+    quote,
+  }
+}
+
+export function journeyBoost(item: ZhihuSearchItem, ctx: JourneyContext, choiceLabel: string): number {
+  const blob = itemBlob(item)
+  const planted = ctx.planted
+  let hitWeight = 0
+  let maxWeight = 0
+  planted.forEach((row, index) => {
+    const weight = recencyWeight(index, planted.length)
+    maxWeight += weight
+    if (labelHits(blob, plantedLabel(row))) hitWeight += weight
+  })
+  const depth = journeyDepth(ctx)
+  const sim = maxWeight ? hitWeight / maxWeight : 0
+  const choiceHit = labelHits(blob, choiceLabel) ? 0.35 + 0.2 * depth : 0
+  let era = 0
+  if (ctx.calendarYear && item.EditTime) {
+    const published = new Date(item.EditTime * 1000).getFullYear()
+    const delta = Math.abs(published - ctx.calendarYear)
+    era = delta <= 1 ? 0.18 : delta <= 3 ? 0.1 : 0
+  }
+  const statusHit = ctx.profile.status && labelHits(blob, ctx.profile.status) ? 0.12 : 0
+  return sim * (1.2 + 2.2 * depth) + choiceHit + era + statusHit
+}
+
+export function portraitScore(item: ZhihuSearchItem, ctx: JourneyContext, choiceLabel: string): number {
+  const share = 0.22 + 0.53 * journeyDepth(ctx)
+  return (1 - share) * scoreSearchItem(item) + share * journeyBoost(item, ctx, choiceLabel)
+}
+
+export function rankSearchItems(items: ZhihuSearchItem[], ctx: JourneyContext, choiceLabel: string, limit = 4): ZhihuSearchItem[] {
+  return [...items]
+    .sort((a, b) => portraitScore(b, ctx, choiceLabel) - portraitScore(a, ctx, choiceLabel))
+    .slice(0, limit)
+}
+
+export function npcFromSearch(item: ZhihuSearchItem, ctx: JourneyContext, choiceLabel: string, fallback: EraNpc): EraNpc {
+  const explain = explainMatch(item, ctx, choiceLabel)
+  const body = plainText(item.ContentText || item.Summary, 280)
+  const sentences = body.split(/(?<=[。！？!?])/).map(part => part.trim()).filter(Boolean)
+  return {
+    name: plainText(item.AuthorName || item.Author?.Name, 24) || fallback.name,
+    identity: plainText(item.AuthorBadgeText || item.Author?.Headline, 40) || fallback.identity,
+    proposition: sentences[0] || fallback.proposition,
+    match: explain.headline,
+    avatar: authorAvatar(item) || fallback.avatar,
+    causal: {
+      background: explain.story,
+      options: fallback.causal.options,
+      choice: choiceLabel,
+      cost: sentences[1] || fallback.causal.cost,
+      reflection: explain.quote || fallback.causal.reflection,
+    },
+  }
+}
+
+export function eraChoiceFromDiscovery(
+  discovery: DiscoveredChoice,
+  items: ZhihuSearchItem[],
+  ctx: JourneyContext,
+  index: number,
+): EraChoice {
+  const pattern = LIFE_CHOICE_PATTERNS.find(item => item.id === discovery.patternId)
+  const sample = items.find(item => (pattern?.keywords ?? []).some(word => itemBlob(item).includes(word)))
+  const explain = sample ? explainMatch(sample, ctx, discovery.label) : null
+  const optionLine = discovery.label
+  return {
+    id: discovery.patternId,
+    label: discovery.label,
+    peer: 0,
+    reason: sample
+      ? `这个年纪也有人走「${discovery.label}」。比如《${discovery.sampleTitle}》。`
+      : `这个年纪也出现了「${discovery.label}」。`,
+    flowerKind: flowerKindAt(3 + index),
+    npc: {
+      name: plainText(sample?.AuthorName || sample?.Author?.Name, 24) || '走过这条路的人',
+      identity: plainText(sample?.AuthorBadgeText || sample?.Author?.Headline, 40) || '走过这条分岔的人',
+      proposition: explain?.quote || discovery.sampleTitle,
+      match: explain?.headline || `同一年，也有人站在「${discovery.label}」这一侧。`,
+      avatar: sample ? authorAvatar(sample) : undefined,
+      causal: {
+        background: explain?.story || `${eraWhen(ctx)} ${eraBackdrop(ctx)} 当时出现了「${discovery.label}」。`,
+        options: optionLine,
+        choice: discovery.label,
+        cost: '有人走过，不证明你也必须走。',
+        reflection: explain?.quote || '先看原文，再决定要不要把这条路种下。',
+      },
+    },
+  }
+}
+
+export function mergeDiscoveredChoices(authored: EraChoice[], discovered: EraChoice[]): EraChoice[] {
+  const used = new Set(authored.map(item => item.id))
+  const extra = discovered.filter(item => !used.has(item.id))
+  extra.forEach(item => used.add(item.id))
+  return [...authored, ...extra].slice(0, 9)
+}
+
+export function fallbackNodeQueries(age: number, choiceId: string): string[] {
+  const node = eraNodeForAge(age)
+  const choice = eraChoice(age, choiceId) ?? node.choices[0]
+  const primary = `${node.age}岁 ${choice.label}`
+  const event = `${node.event} ${choice.label}`
+  return primary === event ? [primary] : [primary, event]
+}
+
+/** Offline / demo: still name concrete overlaps, never a fake matching score. */
+export function explainAuthored(choice: EraChoice, ctx: JourneyContext): MatchExplain {
+  const last = ctx.planted.at(-1)
+  const author = choice.npc.name
+  const lastName = last ? plantedLabel(last) : ''
+  const headline = last && lastName && lastName !== choice.label
+    ? `${author} 也从「${lastName}」走到了「${choice.label}」。`
+    : `同一年，${author} 也站在「${choice.label}」这一侧。`
+  const causal = choice.npc.causal
+  const story = [
+    eraWhen(ctx),
+    eraBackdrop(ctx),
+    ctx.profile.status ? `日子过成「${plainText(ctx.profile.status, 16)}」。` : '',
+    causal.background,
+    `TA 选了「${causal.choice || choice.label}」。`,
+  ].join('').replace(/。{2,}/g, '。')
+  const quote = causal.reflection || choice.npc.proposition
+  return { headline, story, quote }
+}

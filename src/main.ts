@@ -3,7 +3,7 @@ import { createArchiveScene } from './archive/createArchiveScene'
 import { createGardenScene, readArchiveProfile, writeArchiveProfile } from './garden/createGardenScene'
 import { createPersonalTag } from './outlook/createPersonalTag'
 import type { ArchiveProfile } from './archive/archiveInterview'
-import { debugGardenProfile } from './garden/gardenState'
+import { debugGardenProfile, isSkipDemoProfile, peekGardenSave } from './garden/gardenState'
 import { projectedDragProgress, resolveMoonRelease } from './game/input/moonDrag'
 import { sampleWarpTimeline, type WarpSample } from './game/transition/warpTimeline'
 import { createWarpField } from './render/createWarpField'
@@ -174,7 +174,8 @@ const startBacktest = document.querySelector<HTMLButtonElement>('.start-backtest
 const archiveSceneElement = document.querySelector<HTMLElement>('.archive-scene')!
 const archiveScene = createArchiveScene(archiveSceneElement)
 const gardenScene = createGardenScene(app)
-createPersonalTag(app)
+const personalTag = createPersonalTag(app)
+gardenScene.element.querySelector('.garden-bottom-links')?.append(personalTag.element)
 const gardenWhiteout = document.createElement('div')
 gardenWhiteout.className = 'garden-whiteout'
 gardenWhiteout.hidden = true
@@ -261,6 +262,7 @@ let displayProgress = 0
 let copySequencePlaying = false
 let copySequencePlayed = false
 let copySequenceTimer = 0
+let copyStep = 0
 let dragEnabled = false
 let moonDragging = false
 let moonDocked = false
@@ -324,6 +326,7 @@ function showGarden(profile?: ArchiveProfile, arrival: 'resume' | 'begin' = 'res
   scene.style.display = 'none'
   scene.setAttribute('aria-hidden', 'true')
   archiveScene.hide()
+  gardenScene.element.inert = false
   gardenScene.show(profile, arrival)
   const url = new URL(window.location.href)
   url.searchParams.delete('debug')
@@ -351,7 +354,7 @@ archiveSceneElement.addEventListener('life-backtest:archive-door-arrived', async
   await Promise.race([gardenScene.ready, delay(8000)])
   if (pageLeaving) return
   gardenScene.element.inert = true
-  showGarden(profile, 'begin')
+  showGarden(profile, 'resume')
   await delay(reduced ? 120 : 550)
   if (pageLeaving) return
   gardenWhiteout.dataset.phase = 'revealing'
@@ -369,6 +372,8 @@ function resetCopySequence() {
   copySequenceTimer = 0
   copySequencePlaying = false
   copySequencePlayed = false
+  copyStep = 0
+  delete scene.dataset.copyStep
   dragEnabled = false
   moonDragging = false
   moonDocked = false
@@ -399,24 +404,40 @@ function resetCopySequence() {
   )
 }
 
+function finishCopySequence() {
+  copySequencePlaying = false
+  copyStep = 4
+  scene.dataset.copyStep = 'done'
+  dragEnabled = true
+  moonTarget.setAttribute('aria-label', '按住月球，拖向右下方')
+  scene.classList.remove('is-copy-playing')
+  scene.classList.add('is-copy-complete', 'is-drag-enabled')
+}
+
+function advanceCopySequence() {
+  if (!copySequencePlaying) return false
+  if (copyStep < 3) {
+    copyStep += 1
+    scene.dataset.copyStep = String(copyStep)
+    playCue(48, 0.2, 0.016)
+    return true
+  }
+  finishCopySequence()
+  playCue(54, 0.24, 0.018)
+  return true
+}
+
 function startCopySequence() {
   if (copySequencePlaying || copySequencePlayed) return
 
   copySequencePlaying = true
   copySequencePlayed = true
+  copyStep = 1
+  scene.dataset.copyStep = '1'
   lifeCopySequence.setAttribute('aria-hidden', 'false')
   scene.classList.remove('is-copy-complete')
   scene.classList.add('is-copy-playing')
-
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  copySequenceTimer = window.setTimeout(() => {
-    copySequenceTimer = 0
-    copySequencePlaying = false
-    dragEnabled = true
-    moonTarget.setAttribute('aria-label', '按住月球，拖向右下方')
-    scene.classList.remove('is-copy-playing')
-    scene.classList.add('is-copy-complete', 'is-drag-enabled')
-  }, reducedMotion ? 1800 : 5000)
+  moonTarget.setAttribute('aria-label', '点击月亮，看下一段')
 }
 
 function syncCopySequence(progress: number) {
@@ -1036,6 +1057,7 @@ function changeProgress(delta: number) {
 }
 
 function handleWheel(event: WheelEvent) {
+  if (!openingRuntimeActive || scene.style.display === 'none') return
   event.preventDefault()
   const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE
     ? 16
@@ -1048,7 +1070,7 @@ function handleWheel(event: WheelEvent) {
 }
 
 function handleKeyboard(event: KeyboardEvent) {
-  if (dragEnabled || moonDocked) return
+  if (!openingRuntimeActive || dragEnabled || moonDocked) return
   if (event.key === 'ArrowUp' || event.key === 'PageUp') {
     event.preventDefault()
     changeProgress(0.12)
@@ -1075,9 +1097,16 @@ moonTarget.addEventListener('pointerenter', () => {
 const requestedScene = new URLSearchParams(window.location.search)
 if (requestedScene.get('zhihu') === 'access') mountAccessOverlay(document.body)
 if (requestedScene.get('debug') === 'garden') {
-  const profile = debugGardenProfile(requestedScene)
-  writeArchiveProfile(profile)
-  showGarden(profile, 'begin')
+  const reset = requestedScene.get('reset') === '1'
+  const remembered = readArchiveProfile()
+  const saved = peekGardenSave()
+  if (!reset && (saved || (remembered && !isSkipDemoProfile(remembered)))) {
+    showGarden(remembered ?? saved?.profile, 'resume')
+  } else {
+    const profile = debugGardenProfile(requestedScene)
+    writeArchiveProfile(profile)
+    showGarden(profile, 'begin')
+  }
 } else if (requestedScene.get('scene') === 'garden') showGarden(readArchiveProfile())
 else if (requestedScene.get('debug') === 'archive' || requestedScene.get('scene') === 'archive') enterArchive('debug')
 
@@ -1155,13 +1184,29 @@ moonTarget.addEventListener('pointerdown', beginMoonDrag)
 moonTarget.addEventListener('pointermove', moveMoonDrag)
 moonTarget.addEventListener('pointerup', finishMoonDrag)
 moonTarget.addEventListener('pointercancel', finishMoonDrag)
+lifeCopySequence.addEventListener('click', (event) => {
+  if (!copySequencePlaying) return
+  event.preventDefault()
+  advanceCopySequence()
+})
 moonTarget.addEventListener('click', (event) => {
+  if (copySequencePlaying) {
+    event.preventDefault()
+    advanceCopySequence()
+    return
+  }
   if (event.detail !== 0 || !dragEnabled || moonDocked || displayProgress < 0.98) return
   dockMoon()
   playCue(54, 0.24, 0.022)
 })
 moonTarget.addEventListener('keydown', (event) => {
-  if ((event.key !== 'Enter' && event.key !== ' ') || !dragEnabled || moonDocked || displayProgress < 0.98) return
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  if (copySequencePlaying) {
+    event.preventDefault()
+    advanceCopySequence()
+    return
+  }
+  if (!dragEnabled || moonDocked || displayProgress < 0.98) return
   event.preventDefault()
   dockMoon()
   playCue(54, 0.24, 0.022)

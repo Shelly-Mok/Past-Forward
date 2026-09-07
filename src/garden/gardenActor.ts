@@ -7,40 +7,105 @@ export type ActorEvent =
   | { type: 'seed' | 'complete'; chapter: number; revisit: boolean }
   | { type: 'boarded' }
 export const GARDEN_HOME = { x: 1380, y: 616 }
-export const GARDEN_SOIL = [568, 836, 1104, 1372].map(x => ({ x, y: 730 }))
-export const CHOICE_DOOR = { x: 1372, y: 528 }
-export const BOARDING_DOOR = { x: 1364, y: 548 }
+/** Planted flowers sit on the near lunar soil, below the ship-exit row. */
+export const PLANTED_SOIL_Y = 776
+export const GARDEN_SOIL = [568, 836, 1104, 1372].map(x => ({ x, y: PLANTED_SOIL_Y }))
+export const CHOICE_DOOR = { x: 1146, y: 470 }
+export const RAMP_FOOT = { x: 1216, y: 612 }
+export const BOARDING_DOOR = { x: 1148, y: 504 }
 /** Circular hatch on the archive ship; the rift opens from here. */
 export const SHIP_HATCH = { x: CHOICE_DOOR.x / 1672 * 100, y: CHOICE_DOOR.y / 941 * 100 }
+const RAMP_LANE_X = RAMP_FOOT.x
 
-/** Landing arc to the right of the archive hatch. Count follows the year's choices. */
-export function choicePads(count: number): GroundPoint[] {
+/** How many flowers stay on the front soil before spilling to the ship's right. */
+export const FRONT_PAD_CAP = 6
+
+export function choiceLane(index: number, count: number): 'front' | 'starboard' {
+  return count > FRONT_PAD_CAP && index >= FRONT_PAD_CAP ? 'starboard' : 'front'
+}
+
+function frontPads(count: number): GroundPoint[] {
   const n = Math.max(1, count)
-  const span = 130 + n * 40
+  const left = n > 3 ? 520 : 620
+  const right = n > 3 ? 1140 : 1080
   return Array.from({ length: n }, (_, index) => {
-    const t = n === 1 ? 0 : index / (n - 1) - 0.5
+    const t = n === 1 ? 0.5 : index / (n - 1)
+    const arch = 1 - 4 * (t - 0.5) * (t - 0.5)
     return {
-      x: Math.round(1524 + t * span),
-      y: Math.round(710 - (1 - 4 * t * t) * 28),
+      x: Math.round(left + t * (right - left)),
+      y: Math.round(640 - arch * 16),
     }
   })
 }
-export function soilForAge(age: number): GroundPoint {
-  const band = age >= 80 ? 2 : age >= 40 ? 1 : 0
-  const start = [0, 40, 80][band]
-  const span = [40, 40, 20][band]
-  const t = Math.max(0, Math.min(1, (age - start) / span))
-  return { x: 520 + t * 860, y: 730 }
+
+/** Extra flowers sit on the far lunar shelf, right of the ship — smaller, nearer the horizon. */
+function starboardPads(count: number): GroundPoint[] {
+  const shelf = [
+    { x: 1488, y: 598 },
+    { x: 1564, y: 646 },
+    { x: 1508, y: 696 },
+    { x: 1576, y: 742 },
+  ]
+  return Array.from({ length: Math.max(1, count) }, (_, index) => {
+    if (index < shelf.length) return shelf[index]
+    return { x: 1508 + (index % 2) * 56, y: 742 + (index - 3) * 52 }
+  })
+}
+
+/** Front soil arc first; overflow goes to the ship's starboard. */
+export function choicePads(count: number): GroundPoint[] {
+  const n = Math.max(1, count)
+  if (n <= FRONT_PAD_CAP) return frontPads(n)
+  return [...frontPads(FRONT_PAD_CAP), ...starboardPads(n - FRONT_PAD_CAP)]
+}
+export function soilForAge(age: number, currentAge: number | null = null): GroundPoint {
+  const span = Math.max(40, currentAge ?? 80)
+  const t = Math.max(0, Math.min(1, age / span))
+  return { x: 520 + t * 860, y: PLANTED_SOIL_Y }
+}
+
+/** Keep planted flowers from stacking when adjacent years are both grown. */
+export function spreadGroundPoints(points: GroundPoint[], minGap = 100): GroundPoint[] {
+  if (points.length <= 1) return points.map(point => ({ ...point }))
+  const next = points.map(point => ({ ...point }))
+  const left = 500
+  const right = 1400
+  for (let i = 1; i < next.length; i++) {
+    if (next[i].x < next[i - 1].x + minGap) next[i].x = next[i - 1].x + minGap
+  }
+  const overflow = next[next.length - 1].x - right
+  if (overflow > 0) {
+    for (const point of next) point.x -= overflow
+    if (next[0].x < left) {
+      const span = right - left
+      next.forEach((point, index) => {
+        point.x = Math.round(left + index * span / (next.length - 1))
+      })
+    }
+  }
+  return next
 }
 const distance = (a: GroundPoint, b: GroundPoint) => Math.hypot(a.x - b.x, a.y - b.y)
 
-/** Authored foreground lane: never cut through the archive cabin or ramp. */
+/** Soil to ramp foot, then up the stairs into the hatch. */
+export function boardPath(from: GroundPoint): GroundPoint[] {
+  const mid = { x: 1182, y: 556 }
+  const points = [{ ...from }]
+  if (from.y >= 705) points.push({ x: RAMP_FOOT.x, y: from.y })
+  else if (from.x > 1280) points.push({ x: from.x, y: RAMP_FOOT.y })
+  if (distance(points.at(-1)!, RAMP_FOOT) > 10) points.push({ ...RAMP_FOOT })
+  points.push(mid, { ...BOARDING_DOOR })
+  return points.filter((p, i) => !i || distance(points[i - 1], p) > .01)
+}
+
+/** Authored foreground lane: approach the ramp from the garden, not through the hull. */
 export function gardenPath(from: GroundPoint, to: GroundPoint): GroundPoint[] {
   const points = [{ ...from }]
   const leavingHigh = from.y < 705 && to.y >= 705
   const enteringHigh = from.y >= 705 && to.y < 705
-  if (leavingHigh) points.push({ x: 1380, y: 682 }, { x: 1345, y: 730 })
-  else if (enteringHigh) points.push({ x: 1345, y: 730 }, { x: 1380, y: 682 })
+  if (leavingHigh && from.x > 1300) points.push({ x: from.x, y: to.y })
+  else if (leavingHigh) points.push({ x: RAMP_LANE_X, y: 682 }, { x: RAMP_LANE_X, y: to.y })
+  else if (enteringHigh) points.push({ x: RAMP_LANE_X, y: from.y }, { x: RAMP_LANE_X, y: 682 })
   points.push({ ...to })
   return points.filter((p, i) => !i || distance(points[i - 1], p) > .01)
 }
@@ -81,29 +146,28 @@ export class GardenActor {
     if (this.busy) return false
     this.mission = 'plant'
     this.chapter = chapter; this.revisit = revisit; this.growthElapsed = 0
-    // Stand beside the chapter's halo, never inside the flower silhouette.
-    // The hand places its seed at the near edge of this patch of soil.
-    const target = { x: soil.x - 62, y: soil.y }
+    // Stand on the lunar soil beside the mound, not inside the flower.
+    const target = { x: soil.x - 62, y: soil.y + 6 }
     this.route = gardenPath(this.position, target)
     this.travelSeconds = Math.max(.15, pathLength(this.route) / 154)
     this.facing = this.route.length > 1 && this.route[1].x < this.position.x ? -1 : 1
     this.phase = 'turning'; this.elapsed = 0; this.walkDistance = 0
     return true
   }
-  walkTo(target: GroundPoint) {
+  walkTo(_target: GroundPoint) {
     if (this.busy) return false
     this.mission = 'board'
     this.chapter = null
     this.revisit = true
     this.growthElapsed = 0
-    if (distance(this.position, target) < 14) {
-      this.facing = 1
+    if (distance(this.position, BOARDING_DOOR) < 14) {
+      this.facing = -1
       this.phase = 'boarding'
       this.elapsed = 0
       return true
     }
-    this.route = gardenPath(this.position, target)
-    this.travelSeconds = Math.max(.15, pathLength(this.route) / 154)
+    this.route = boardPath(this.position)
+    this.travelSeconds = Math.max(.4, pathLength(this.route) / 118)
     this.facing = this.route.length > 1 && this.route[1].x < this.position.x ? -1 : 1
     this.phase = 'turning'
     this.elapsed = 0

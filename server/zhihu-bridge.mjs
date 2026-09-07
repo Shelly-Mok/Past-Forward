@@ -332,6 +332,10 @@ export async function handleZhihuApi(request, response) {
       sendJson(response, 200, await handleMatch(await readJsonBody(request)))
       return true
     }
+    if (request.method === 'POST' && url.pathname === '/api/life/nodes/query') {
+      sendJson(response, 200, await handleMatch(await readJsonBody(request)))
+      return true
+    }
     if (request.method === 'GET' && url.pathname === '/api/life/author') {
       sendJson(response, 200, await handleAuthor(url))
       return true

@@ -1,7 +1,7 @@
 import { drawMemoryFilmWall } from './drawMemoryFilms'
 import { sampleArchiveDoorTimeline, type ArchiveDoorPhase } from './archiveDoorTimeline'
 import { createArchiveVaultDoor } from './createArchiveVaultDoor'
-import { portalRoutePoint, PORTAL_WALK_SECONDS } from './archivePortalRoute'
+import { portalRoutePoint, PORTAL_HOLD_SPEED, PORTAL_TAP_PROGRESS, PORTAL_WALK_SECONDS } from './archivePortalRoute'
 import { routePoint, WALK_SECONDS } from './archiveWalkRoute'
 import {
   ARCHIVE_QUESTIONS,
@@ -667,7 +667,7 @@ export function createArchiveScene(scene: HTMLElement) {
       setAuditCopy(
         '零点小姐 · 时间通道',
         '沿着平台慢慢走过来，到门口就好。',
-        '按住 W / ↑ 前往正门 · R 重新进入',
+        '点一下 W 走三步，按住可滑行 · R 重新进入',
       )
     }
     portalProgress = clamp(portalProgress + amount)
@@ -689,11 +689,9 @@ export function createArchiveScene(scene: HTMLElement) {
   }
 
   function saveProfile() {
-    try {
-      sessionStorage.setItem('life-backtest.archive-profile', JSON.stringify(profile))
-    } catch {
-      // The scene still works when storage is disabled; answers remain in memory.
-    }
+    const raw = JSON.stringify(profile)
+    try { sessionStorage.setItem('life-backtest.archive-profile', raw) } catch { /* answers remain in memory */ }
+    try { localStorage.setItem('life-backtest.archive-profile', raw) } catch { /* session copy is enough to finish the door */ }
   }
 
   function syncCheckpointLights() {
@@ -911,11 +909,8 @@ export function createArchiveScene(scene: HTMLElement) {
     profile = {}
     activeQuestion = null
     movementGate.reset()
-    try {
-      sessionStorage.removeItem('life-backtest.archive-profile')
-    } catch {
-      // Ignore storage restrictions; the in-memory profile is already clear.
-    }
+    try { sessionStorage.removeItem('life-backtest.archive-profile') } catch { /* in-memory profile is already clear */ }
+    try { localStorage.removeItem('life-backtest.archive-profile') } catch { /* garden save clear still runs */ }
     clearGardenSave()
     readyAt = performance.now() + (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 1050)
     held.clear()
@@ -1014,7 +1009,7 @@ export function createArchiveScene(scene: HTMLElement) {
     const canWalkToPortal = phase === 'portal' || phase === 'portal-walking'
     const walkingToPortal = canWalkToPortal && isForwardHeld()
     if (walkingToPortal) {
-      advancePortalWalk(movementDelta / PORTAL_WALK_SECONDS)
+      advancePortalWalk(movementDelta / PORTAL_WALK_SECONDS * PORTAL_HOLD_SPEED)
       const step = Math.floor(elapsed * 3.6)
       if (step !== lastStep) {
         lastStep = step
@@ -1048,6 +1043,10 @@ export function createArchiveScene(scene: HTMLElement) {
       event.preventDefault()
       audio.unlock()
       held.add(event.code)
+      if (phase === 'portal' || phase === 'portal-walking') {
+        if (!event.repeat) advancePortalWalk(PORTAL_TAP_PROGRESS)
+        return
+      }
       if (!event.repeat) nudgeForward(0.025)
     }
     if ((event.code === 'KeyE' || event.code === 'Space') && phase === 'ready') {
@@ -1096,7 +1095,7 @@ export function createArchiveScene(scene: HTMLElement) {
   moveButton.addEventListener('click', () => {
     if (phase === 'ready') enterAudit()
     if (phase === 'arrival' || phase === 'walking') nudgeForward(0.08)
-    if (phase === 'portal' || phase === 'portal-walking') nudgeForward(0.08)
+    if (phase === 'portal' || phase === 'portal-walking') advancePortalWalk(PORTAL_TAP_PROGRESS)
   })
   interviewForm.addEventListener('submit', (event) => {
     event.preventDefault()

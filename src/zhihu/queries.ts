@@ -1,15 +1,16 @@
 import { eraChoice, eraNodeForAge } from '../garden/gardenContent'
+import { authorQueryFor, companionQueries, fallbackNodeQueries, journeyContext, nodeDiscoveryQueries, type JourneyContext } from './recommend'
 
-export function searchQueriesFor(age: number, choiceId: string): string[] {
+export { authorQueryFor }
+
+export function searchQueriesFor(age: number, choiceId: string, journey?: JourneyContext): string[] {
   const node = eraNodeForAge(age)
   const choice = eraChoice(age, choiceId) ?? node.choices[0]
-  const primary = `${node.age}岁 ${choice.label}`
-  const event = `${node.event} ${choice.label}`
-  return primary === event ? [primary] : [primary, event]
+  if (!journey) return fallbackNodeQueries(age, choiceId)
+  return companionQueries(journey, choice.label, 'same-era')
 }
 
-export function authorQueryFor(author: string, hint: string): string {
-  const name = author.trim()
-  const extra = hint.trim()
-  return extra ? `${name} ${extra}` : name
+export function discoveryQueriesFor(age: number, journey?: JourneyContext): string[] {
+  const node = eraNodeForAge(age)
+  return nodeDiscoveryQueries(journey ?? journeyContext({ selectedAge: age, currentAge: null }), node.event)
 }

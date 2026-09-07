@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { portalRoutePoint, PORTAL_WALK_SECONDS } from './archivePortalRoute'
+import { portalRoutePoint, PORTAL_HOLD_SPEED, PORTAL_STEPS_PER_TAP, PORTAL_TAP_PROGRESS, PORTAL_WALK_SECONDS } from './archivePortalRoute'
 
 describe('archive portal route', () => {
   it('starts beside the chair and stops at the centre of the vault threshold', () => {
@@ -16,6 +16,10 @@ describe('archive portal route', () => {
 
   it('uses a restrained walk speed and perspective scale', () => {
     expect(PORTAL_WALK_SECONDS).toBeGreaterThan(7)
+    expect(PORTAL_HOLD_SPEED).toBeGreaterThan(1)
+    expect(PORTAL_STEPS_PER_TAP).toBe(3)
+    expect(PORTAL_TAP_PROGRESS).toBeGreaterThan(0.1)
+    expect(PORTAL_TAP_PROGRESS).toBeLessThan(0.13)
     expect(portalRoutePoint(1).scale).toBeLessThan(portalRoutePoint(0).scale)
   })
 })

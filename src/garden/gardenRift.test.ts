@@ -47,7 +47,9 @@ class FakeNode {
     this.children = []
   }
   matches(selector: string) {
-    if (selector.startsWith('.')) return this.classList.contains(selector.slice(1))
+    if (selector.startsWith('.')) {
+      return selector.slice(1).split('.').every(name => this.classList.contains(name))
+    }
     return this.tagName === selector.toUpperCase()
   }
   querySelector(selector: string): FakeNode | null {
@@ -69,15 +71,16 @@ class FakeNode {
 }
 
 function view(kind: RiftView['kind'], extra: Partial<RiftView> = {}): RiftView {
-  return { kind, backtrackAge: null, altChoiceId: null, followSlot: null, age28Id: null, foreOpen: null, ...extra }
+  return { kind, backtrackAge: null, altChoiceId: null, followSlot: null, age28Id: null, foreOpen: null, agentChapter: 'appear', agentReply: null, evidenceOpen: false, walkIndex: 0, walkPicks: {}, ...extra }
 }
 
 function ctx(extra: Partial<RiftContext> = {}): RiftContext {
   return {
-    planted: [{ age: 20, choiceId: 'job' }],
+    planted: [{ age: 20, choiceId: 'intern' }, { age: 22, choiceId: 'major' }],
     currentAge: 22,
+    targetAge: 20,
     profileAge: '22',
-    lastChoiceId: 'job',
+    lastChoiceId: 'major',
     view: view('backtrack'),
     ...extra,
   }
@@ -92,6 +95,8 @@ function handlers(): RiftHandlers {
     setFollow: () => undefined,
     setAge28: () => undefined,
     setForeOpen: () => undefined,
+    setAgent: () => undefined,
+    startParallel: () => undefined,
     toShore: () => undefined,
   }
 }
@@ -119,50 +124,72 @@ beforeEach(() => {
 })
 
 describe('garden rift pages', () => {
-  it('lists planted years on the backtrack sky, then shows the unchosen road', () => {
-    const list = mount(ctx())
-    expect(list.querySelector('h1')?.textContent).toBe('你想回到哪一个没想通的节点？')
-    expect(textOf(list)).toContain('演示内容 · 不是真实匹配结果')
-    expect(list.querySelector('.garden-rift-trail')).not.toBeNull()
-    expect(textOf(list)).toContain('你走过的轨迹')
-    expect(list.querySelectorAll('.garden-rift-trail-star')).toHaveLength(1)
-    expect(list.querySelector('.garden-rift-trail-year')).not.toBeNull()
-    expect(textOf(list)).toContain('流星雨')
-    expect(list.querySelector('.garden-rift-trail-dot')).toBeNull()
-    expect(list.querySelector('.garden-rift-journey')).toBeNull()
-    expect(list.querySelector('.garden-rift-planet')).toBeNull()
-    expect(list.querySelector('.garden-rift-trail-planet')).toBeNull()
+  it('opens the fourth act as a meeting with another me, not a chat app', () => {
+    const appear = mount(ctx())
+    expect(appear.querySelector('.garden-rift-play')?.classList.contains('is-backtrack')).toBe(true)
+    expect(textOf(appear)).toContain('有些人生没有消失')
+    expect(textOf(appear)).toContain('走近看看')
+    expect(appear.querySelector('.garden-agent-star')).not.toBeNull()
+    expect(appear.querySelector('.garden-agent-dialog')).toBeNull()
+    expect(appear.querySelector('.garden-agent-canvas')).not.toBeNull()
+    expect(textOf(appear)).not.toContain('AI Assistant')
+    expect(textOf(appear)).not.toContain('ChatGPT')
 
-    const detail = mount(ctx({ view: view('backtrack', { backtrackAge: 20 }) }))
-    expect(detail.querySelector('.garden-rift-trail')).toBeNull()
-    expect(textOf(detail.querySelector('.garden-rift-hud .garden-rift-lead')!)).toContain('未选择之路')
-    expect(textOf(detail.querySelector('.garden-rift-alt')!)).toContain('如果你当时选了')
-    expect(textOf(detail.querySelector('.garden-rift-whisper')!)).toMatch(/\S/)
-    expect(detail.querySelector('.garden-rift-post')).toBeNull()
-    expect(detail.querySelector('.garden-rift-sheet')).toBeNull()
+    const walk = mount(ctx({ view: view('backtrack', { agentChapter: 'walk', backtrackAge: 20, walkIndex: 0 }) }))
+    expect(textOf(walk)).toContain('20 岁 · 从 20 岁另选')
+    expect(textOf(walk)).toContain('给另一个我选一条')
+    expect(walk.querySelector('.garden-agent-options')).not.toBeNull()
+    expect(walk.querySelectorAll('.garden-agent-options button').length).toBeGreaterThanOrEqual(3)
+    expect(walk.querySelectorAll('.garden-agent-match')).toHaveLength(0)
+    expect(textOf(walk)).not.toContain('走到 22 岁')
 
-    const opened = mount(ctx({ view: view('backtrack', { backtrackAge: 20, altChoiceId: 'intern' }) }))
-    expect(opened.querySelector('.garden-rift-trail')).toBeNull()
-    expect(textOf(opened.querySelector('.garden-rift-post')!)).toContain('如果选了')
-    expect(textOf(opened.querySelector('.garden-rift-post')!)).toContain('阅读原文（演示）')
+    const picked = mount(ctx({ view: view('backtrack', { agentChapter: 'walk', backtrackAge: 20, walkIndex: 0, walkPicks: { 20: 'pause' } }) }))
+    expect(textOf(picked)).toContain('好处')
+    expect(textOf(picked)).toContain('优势')
+    expect(textOf(picked)).toContain('劣势 / 代价')
+    expect(textOf(picked)).toContain('结果')
+    expect(textOf(picked)).toContain('走到 22 岁')
+    expect(textOf(picked)).toContain('经验对照')
+
+    const lastYear = mount(ctx({ view: view('backtrack', { agentChapter: 'walk', backtrackAge: 20, walkIndex: 1, walkPicks: { 20: 'pause', 22: 'dropout20' } }) }))
+    expect(textOf(lastYear)).toContain('22 岁 · 现年')
+    expect(textOf(lastYear)).toContain('这一路走到了现在')
+    expect(lastYear.querySelectorAll('.garden-agent-match')).toHaveLength(0)
+
+    const meet = mount(ctx({ view: view('backtrack', { agentChapter: 'meet', backtrackAge: 20, walkIndex: 1 }) }))
+    expect(textOf(meet)).toContain('从 20 岁走到现在')
+    expect(meet.querySelectorAll('.garden-agent-match')).toHaveLength(4)
+    expect(meet.querySelectorAll('.garden-agent-match.is-A')).toHaveLength(2)
+    expect(meet.querySelectorAll('.garden-agent-match.is-B')).toHaveLength(2)
+    expect(textOf(meet)).not.toMatch(/更成功|幸福值|人生评分/)
+
+    const farewell = mount(ctx({ view: view('backtrack', { agentChapter: 'farewell' }) }))
+    expect(textOf(farewell)).toContain('剩下的路，你来走。')
+
+    const report = mount(ctx({ view: view('backtrack', { agentChapter: 'report' }) }))
+    expect(textOf(report)).toContain('你看见了两种人生')
+    expect(textOf(report)).toContain('生成我的人生回测')
+    expect(textOf(report)).toContain('再和他坐一会儿')
   })
 
-  it('keeps follow beats and 28-year options readable', () => {
-    const pick = mount(ctx({ view: view('forward') }))
+  it('embeds follow companions inside foresight instead of a separate page', () => {
+    const pick = mount(ctx({ view: view('foresight') }))
     expect(textOf(pick)).toContain('概率推演，非命运定论')
-    expect(pick.querySelector('.garden-rift-play')?.classList.contains('is-forward')).toBe(true)
-    expect(pick.querySelectorAll('.garden-rift-npc')).toHaveLength(3)
-    expect(pick.querySelectorAll('.garden-rift-portraits .garden-rift-world')).toHaveLength(3)
+    expect(textOf(pick)).toContain('第五幕')
+    expect(textOf(pick)).not.toContain('去前进')
+    expect(pick.querySelector('.garden-rift-play')?.classList.contains('is-foresight')).toBe(true)
+    expect(pick.querySelector('.garden-rift-follow')).not.toBeNull()
+    expect(pick.querySelectorAll('.garden-rift-npc').length).toBeGreaterThanOrEqual(2)
+    expect(pick.querySelectorAll('.garden-rift-portraits .garden-rift-world').length).toBeGreaterThanOrEqual(2)
 
-    const follow = mount(ctx({ view: view('forward', { followSlot: '同代 · 相近选择' }) }))
-    expect(follow.querySelectorAll('.garden-rift-npc')).toHaveLength(3)
+    const follow = mount(ctx({ view: view('foresight', { followSlot: 'A · 同代相近' }) }))
+    expect(follow.querySelectorAll('.garden-rift-npc').length).toBeGreaterThanOrEqual(2)
     expect(follow.querySelectorAll('.garden-rift-npc').filter(node => node.classList.contains('is-open'))).toHaveLength(1)
     expect(follow.querySelector('.garden-rift-dossier')).not.toBeNull()
     expect(follow.querySelectorAll('.garden-rift-beat')).toHaveLength(3)
     expect(follow.querySelectorAll('.garden-rift-options button')).toHaveLength(0)
-    expect(textOf(follow.querySelector('.garden-rift-dossier-choice')!)).toMatch(/\d+%/)
-    expect(textOf(follow.querySelector('.garden-rift-dossier')!)).toContain('背景')
-    expect(textOf(follow.querySelector('.garden-rift-dossier')!)).toContain('选择')
+    expect(follow.querySelector('.garden-rift-explain')).not.toBeNull()
+    expect(textOf(follow.querySelector('.garden-rift-dossier')!)).toContain('当时')
     expect(follow.querySelectorAll('.garden-rift-archive-post')).toHaveLength(3)
     expect(textOf(follow.querySelector('.garden-rift-archive')!)).toContain('TA 写过的')
     expect(textOf(follow.querySelector('.garden-rift-archive-post')!)).toContain('阅读原文（演示）')
@@ -170,12 +197,14 @@ describe('garden rift pages', () => {
 
   it('keeps the foresight and ending copy that the demo must not lose', () => {
     const fore = mount(ctx({ view: view('foresight') }))
-    expect(fore.querySelector('h1')?.textContent).toBe('25 → 26 → 27 岁可能的走向')
+    expect(fore.querySelector('h1')?.textContent).toBe('23 → 24 → 25 岁可能的走向')
     expect(textOf(fore)).toContain('不是命运定论')
     expect(fore.querySelectorAll('.garden-rift-year')).toHaveLength(3)
     expect(textOf(fore)).toContain('写下个人展望')
+    expect(textOf(fore)).toContain('第五幕')
 
     const end = mount(ctx({ view: view('end') }))
+    expect(textOf(end)).toContain('第六幕')
     expect(end.querySelector('h1')?.textContent).toMatch(/有了不一样的体会/)
     expect(end.querySelector('.garden-rift-play')?.classList.contains('is-end')).toBe(true)
     expect(textOf(end)).toContain('你走过的选择链')

@@ -1,4 +1,4 @@
-import { eraChoice, eraNodeForAge, type EraNpc } from './gardenContent'
+import { eraChoice, eraNodeForAge, ownChoice, type EraNpc } from './gardenContent'
 
 export type RiftKind = 'backtrack' | 'forward' | 'foresight' | 'end'
 
@@ -12,11 +12,18 @@ export type RiftHole = {
 }
 
 export const RIFT_HOLES: RiftHole[] = [
-  { id: 'backtrack', label: '回溯', kicker: '未选择之路', hint: '重访没选的那条路', x: 26.4, y: 31.2 },
-  { id: 'forward', label: '前进', kicker: '沿着谁走', hint: '跟随相近人生继续', x: 44.6, y: 21.4 },
-  { id: 'foresight', label: '前瞻', kicker: '尚未发生的年', hint: '看 25–27 岁的可能', x: 62.8, y: 16.6 },
-  { id: 'end', label: '结束', kicker: '带着领悟离开', hint: '把选择链看成自己的', x: 78.8, y: 22.0 },
+  { id: 'backtrack', label: '回溯', kicker: '第四幕 · 平行宇宙', hint: '重访改造的那条路', x: 24.2, y: 41.5 },
+  { id: 'foresight', label: '前瞻', kicker: '第五幕 · 尚未发生的年', hint: '看现年后三年的可能', x: 50.0, y: 32.4 },
+  { id: 'end', label: '结束', kicker: '第六幕 · 带着领悟离开', hint: '把选择停在这一刻', x: 75.8, y: 41.0 },
 ]
+
+export const CROSSROADS_VOYAGE = {
+  kicker: '◇ 启航 · 前往三岔口',
+  title: '一个新的节点正在形成',
+  lead: '过去已经写下。',
+  body: '从这里开始，没有人知道答案。',
+  action: '前往三岔口 →',
+}
 
 export function holeById(id: RiftKind) {
   return RIFT_HOLES.find(item => item.id === id)
@@ -217,6 +224,45 @@ export const FORESIGHT_YEARS: ForesightYear[] = [
   },
 ]
 
+/** The three years after the player's present age. A 40-year-old sees 41 / 42 / 43. */
+export function foresightAges(currentAge: number | null): [number, number, number] {
+  const start = Math.min(98, Math.max(1, (currentAge ?? 24) + 1))
+  return [start, Math.min(99, start + 1), Math.min(100, start + 2)]
+}
+
+export function foresightTitle(currentAge: number | null): string {
+  const [first, second, third] = foresightAges(currentAge)
+  return `${first} → ${second} → ${third} 岁可能的走向`
+}
+
+export function holeHintFor(id: RiftKind, currentAge: number | null): string {
+  if (id === 'foresight') {
+    const [first, , third] = foresightAges(currentAge)
+    return `看 ${first}–${third} 岁的可能`
+  }
+  return holeById(id)?.hint ?? ''
+}
+
+export function foresightYearsFor(currentAge: number | null): ForesightYear[] {
+  const ages = foresightAges(currentAge)
+  return FORESIGHT_YEARS.map((year, index) => ({
+    ...year,
+    age: ages[index],
+    eraExtra: `${ages[index]}岁。${year.eraExtra.replace(/^二[十五六七]+岁(?:这一年)?[，]?/, '')}`,
+    merge: index === 0
+      ? `三条事件抉择在 ${ages[1]} 岁再次交汇——前瞻不是单线命运。`
+      : index === 1
+        ? `无论 ${ages[0]} 岁怎么选，${ages[1]} 岁都会再问一次：你用什么当尺子。`
+        : year.merge,
+    branches: year.branches.map(branch => ({
+      ...branch,
+      later: branch.later
+        .replaceAll('二十八岁', `${ages[2] + 1}岁`)
+        .replaceAll('二十七岁', `${ages[2]}岁`),
+    })),
+  }))
+}
+
 export function chanceText(branch: ForesightBranch, lastChoiceId?: string | null): string {
   let [lo, hi] = branch.chance
   if (lastChoiceId && branch.boosts?.[lastChoiceId]) {
@@ -255,6 +301,7 @@ export type ChoicePost = {
   paragraphs: string[]
   votes: string
   href: string
+  avatar?: string
 }
 
 export function choicePostFor(age: number, choiceId: string): ChoicePost {
@@ -330,7 +377,7 @@ export type EndSkyLetter = {
   blessing: string
 }
 
-export function endSkyLetterFor(planted: Array<{ age: number, choiceId: string }>, plans = '', currentAge: number | null = null): EndSkyLetter {
+export function endSkyLetterFor(planted: Array<{ age: number, choiceId: string, label?: string }>, plans = '', currentAge: number | null = null): EndSkyLetter {
   if (!planted.length) {
     return {
       kicker: '时代里的轨迹',
@@ -347,10 +394,12 @@ export function endSkyLetterFor(planted: Array<{ age: number, choiceId: string }
   const last = planted[planted.length - 1]
   const firstNode = eraNodeForAge(first.age)
   const lastNode = eraNodeForAge(last.age)
-  const lastChoice = eraChoice(last.age, last.choiceId) ?? lastNode.choices[0]
+  const lastChoice = last.choiceId === 'own'
+    ? ownChoice(last.age, last.label ?? '')
+    : eraChoice(last.age, last.choiceId) ?? lastNode.choices[0]
   const steps = planted.map(item => {
-    const choice = eraChoice(item.age, item.choiceId)
-    return `${item.age} 岁的「${choice?.label ?? item.choiceId}」`
+    const choice = item.label || eraChoice(item.age, item.choiceId)?.label
+    return `${item.age} 岁的「${choice ?? item.choiceId}」`
   })
   const trail = steps.length === 1 ? steps[0] : `${steps.slice(0, -1).join('、')}，再到${steps.at(-1)}`
   const now = currentAge !== null ? `你现在 ${currentAge} 岁。` : ''

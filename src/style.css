@@ -938,6 +938,16 @@ body {
   opacity: 1;
 }
 
+.opening-scene.is-copy-playing .life-copy-sequence {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.opening-scene.is-copy-playing .moon-target {
+  z-index: 4;
+  cursor: pointer;
+}
+
 .opening-scene.is-moon-dragging .life-copy-sequence,
 .opening-scene.is-moon-returning .life-copy-sequence {
   opacity: calc(1 - var(--moon-drag-progress) * 2.5);
@@ -1071,13 +1081,12 @@ body {
   line-height: 1.45;
 }
 
-.opening-scene.is-copy-playing .life-copy-pair {
-  animation: life-copy-pass 2.45s linear forwards;
+.opening-scene.is-copy-playing[data-copy-step="1"] .life-copy-pair--one,
+.opening-scene.is-copy-playing[data-copy-step="2"] .life-copy-pair--two,
+.opening-scene.is-copy-playing[data-copy-step="3"] .life-copy-pair--three,
+.opening-scene.is-copy-complete .life-copy-pair--three {
+  animation: life-copy-step 480ms ease both;
 }
-
-.opening-scene.is-copy-playing .life-copy-pair--one { animation-delay: 240ms; }
-.opening-scene.is-copy-playing .life-copy-pair--two { animation-delay: 1.3s; }
-.opening-scene.is-copy-playing .life-copy-pair--three { animation-delay: 2.36s; }
 
 .scroll-hint {
   position: absolute;
@@ -1342,13 +1351,9 @@ body {
   to { opacity: 0.9; }
 }
 
-@keyframes life-copy-pass {
-  0% { opacity: 0; transform: translateY(94vh); }
-  13% { opacity: 0.82; }
-  37% { opacity: 1; transform: translateY(42vh); }
-  57% { opacity: 1; transform: translateY(40vh); }
-  86% { opacity: 0.72; }
-  100% { opacity: 0; transform: translateY(-22vh); }
+@keyframes life-copy-step {
+  from { opacity: 0; transform: translateY(48vh); }
+  to { opacity: 1; transform: translateY(41vh); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1356,8 +1361,12 @@ body {
   .scroll-hint { animation: none; opacity: 0.66; }
   .scroll-mouse i { animation: none; }
   .opening-scene.has-progress .scroll-hint { opacity: 0; }
-  .opening-scene.is-copy-playing .life-copy-pair { animation: none; }
-  .opening-scene.is-copy-playing .life-copy-pair--three {
+  .opening-scene.is-copy-playing .life-copy-pair,
+  .opening-scene.is-copy-complete .life-copy-pair { animation: none; }
+  .opening-scene.is-copy-playing[data-copy-step="1"] .life-copy-pair--one,
+  .opening-scene.is-copy-playing[data-copy-step="2"] .life-copy-pair--two,
+  .opening-scene.is-copy-playing[data-copy-step="3"] .life-copy-pair--three,
+  .opening-scene.is-copy-complete .life-copy-pair--three {
     opacity: 1;
     transform: translateY(41vh);
   }
@@ -1383,30 +1392,6 @@ body {
   .archive-interview { transition-duration: 0ms !important; }
   .archive-scene.is-door-opening .archive-portal-guidance i,
   .archive-scene.is-portal-open .archive-portal-guidance i { animation: none; opacity: 0.72; }
-}
-
-@media (max-width: 760px) {
-  .life-copy-pair { grid-template-columns: minmax(0, 1fr) 29% minmax(0, 1fr); }
-  .life-copy-card { gap: 3px; }
-  .life-copy-card--left { padding-right: 9px; padding-left: 3%; }
-  .life-copy-card--right { padding-right: 3%; padding-left: 9px; }
-  .life-copy-card strong { font-size: clamp(10px, 2.4vw, 15px); }
-  .life-copy-card small { display: none; }
-  .life-copy-tag { font-size: 7px; }
-  .life-copy-card--left .life-copy-tag::after,
-  .life-copy-card--right .life-copy-tag::before { width: 10px; }
-  .moon-copy-orbit { width: 40%; }
-  .moon-copy-orbit text { font-size: 10px; letter-spacing: 2px; }
-  .drag-hint { bottom: 4.5%; font-size: 10px; letter-spacing: 0.15em; }
-  .drag-gesture { width: 17px; height: 17px; }
-  .backtest-entry { top: 34%; gap: 22px; }
-  .backtest-entry h1 { font-size: clamp(22px, 6vw, 34px); }
-  .start-backtest { min-width: 190px; padding: 13px 18px; font-size: 15px; }
-  .archive-forward-control { display: block; }
-  .archive-distance { display: none; }
-  .archive-control-hint { bottom: 4.8%; }
-  .archive-location { top: 3.5%; left: 3.5%; }
-  .archive-audit-copy { bottom: 11%; width: 80%; }
 }
 
 @media (hover: none), (pointer: coarse) {
@@ -1457,6 +1442,5 @@ body {
 .personal-tag-form button[type="submit"]:hover { color: #fff; }
 .personal-tag-form output { color: #8d8d83; font-size: 11px; }
 @media (max-width: 720px) {
-  .personal-tag { right: 4%; bottom: 18px; }
   .personal-tag-panel { width: min(320px, 92vw); }
 }

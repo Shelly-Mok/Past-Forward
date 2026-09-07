@@ -15,6 +15,12 @@ export type PortalRoutePoint = PortalWaypoint & {
 // clears the chair and desk, then follows the right platform's diagonal seam
 // toward the centre of the open vault.
 export const PORTAL_WALK_SECONDS = 7.4
+/** Hold-to-slide is a little quicker than the authored 7.4s walk. */
+export const PORTAL_HOLD_SPEED = 1.22
+/** One W tap on the open vault walk. Matches the 3.6 steps/sec cadence used while holding. */
+export const PORTAL_STEP_RATE = 3.6
+export const PORTAL_STEPS_PER_TAP = 3
+export const PORTAL_TAP_PROGRESS = PORTAL_STEPS_PER_TAP / (PORTAL_WALK_SECONDS * PORTAL_STEP_RATE)
 
 const PORTAL_ROUTE: PortalWaypoint[] = [
   { x: 1370, y: 602, scale: 0.78, direction: 'left' },

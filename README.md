@@ -10,6 +10,7 @@
 | --- | --- |
 | 三幕完整玩法、每个操作和边界 | [队友交接总册](docs/TEAM_HANDOFF.md) |
 | 第二幕资料如何传给第三幕、模型怎么接 | [数据与接口交接](docs/INTEGRATION.md) |
+| 选项发现、搜人、推荐理由 | [推荐算法](docs/RECOMMEND.md) |
 | 本地项目怎样上传 GitHub | [仓库上传说明](docs/GITHUB_UPLOAD.md) |
 | 素材、动画、生成源文件 | [素材索引](docs/ASSET_INDEX.md) |
 | 如何验收和演示 | [验收清单](docs/ACCEPTANCE.md) |
