@@ -1,5 +1,7 @@
-import { eraChoice, eraNodeForAge, npcFace, ownChoice, signalPortraits, type EraChoice, type SignalPortrait } from './gardenContent'
+import { eraChoice, eraNodeForAge, npcFace, ownChoice, safeAvatarUrl, type EraChoice } from './gardenContent'
 import type { PlantedChoice } from './gardenState'
+import { fallbackSynthesis } from '../interview/dialoguePrompt'
+import { interviewRecap, type InterviewState } from '../interview/interviewState'
 import { paintRiftWorld } from './paintRiftWorld'
 import { openPersonalTag } from '../outlook/createPersonalTag'
 import { readPersonalTag } from '../outlook/personalTag'
@@ -19,12 +21,13 @@ import {
   type WalkPicks,
 } from './anotherMe'
 import {
-  DEMO_EXITS, END_INSIGHT, END_LEAD,
-  bloggerArchiveFor, chanceText, choicePostFor, closestForesightId, endSkyLetterFor, followSceneForChoice, foresightTeller, foresightTitle, foresightYearsFor,
-  type ChoicePost, type FollowScene, type RiftKind,
+  chanceText, choicePostFor, closestForesightId, endInsightFor, foresightTeller, foresightTitle, foresightYearsFor,
+  outlookBloggerPool, outlookKindPool, pickOutlookBlogger, YANXUAN_HREF,
+  type ChoicePost, type OutlookBlogger, type RiftKind,
 } from './riftContent'
-import { hydrateAuthorArchive, liveEnabled, loadChoicePosts, loadLivePortraits } from '../zhihu/liveContent'
-import { explainAuthored, journeyContext, type MatchExplain } from '../zhihu/recommend'
+import { liveEnabled, loadChoicePosts, loadForesightVoice, loadLivePortraits, loadOutlookBloggers } from '../zhihu/liveContent'
+import { MATCH_HONESTY, portraitQuote } from './gardenCopy'
+import { interviewHintTexts, journeyContext } from '../zhihu/recommend'
 
 export type RiftView = {
   kind: RiftKind
@@ -38,6 +41,8 @@ export type RiftView = {
   evidenceOpen: boolean
   walkIndex: number
   walkPicks: WalkPicks
+  outlookFriend?: number
+  outlookConsult?: number
 }
 
 export type RiftContext = {
@@ -45,9 +50,12 @@ export type RiftContext = {
   currentAge: number | null
   targetAge: number | null
   profileAge: string
-  profileStatus?: string
-  profileFamily?: string
+  profileGender?: string
+  profileEducation?: string
+  profileHealth?: string
+  profileLifeEvent?: string
   lastChoiceId: string | null
+  interview?: InterviewState | null
   view: RiftView
 }
 
@@ -70,6 +78,7 @@ export type RiftHandlers = {
   setAgent: (patch: AgentPatch) => void
   startParallel: (age: number) => void
   toShore: () => void
+  refreshOutlook?: (slot: 'friend' | 'consult') => void
 }
 
 function agentView(view: RiftView): RiftView {
@@ -106,7 +115,7 @@ function hud(kicker: string, title: string, note: string) {
 function actions(handlers: RiftHandlers, extra?: HTMLElement[]) {
   const row = el('div', 'garden-rift-actions')
   for (const node of extra ?? []) row.append(node)
-  const back = el('button', '', '返回三岔口')
+  const back = el('button', '', '返回入口')
   back.type = 'button'
   back.addEventListener('click', handlers.back)
   row.append(back)
@@ -130,19 +139,14 @@ function journeyFromRift(ctx: RiftContext, age: number) {
     currentAge: ctx.currentAge,
     profile: {
       age: ctx.profileAge,
-      status: ctx.profileStatus,
-      family: ctx.profileFamily,
+      gender: ctx.profileGender,
+      education: ctx.profileEducation,
+      health: ctx.profileHealth,
+      lifeEvent: ctx.profileLifeEvent,
     },
     planted: ctx.planted,
+    interview: ctx.interview ?? undefined,
   })
-}
-
-function renderExplain(explain: MatchExplain) {
-  const box = el('section', 'garden-rift-explain')
-  box.append(el('p', 'garden-rift-archive-kicker', '当时'))
-  box.append(el('p', 'garden-rift-story', explain.story))
-  if (explain.quote) box.append(el('p', 'garden-rift-quote', `「${explain.quote}」`))
-  return box
 }
 
 function plantedChoice(item: PlantedChoice): EraChoice | undefined {
@@ -317,7 +321,7 @@ function renderWalkCard(
 function renderMeet(ctx: RiftContext, profile: ReturnType<typeof resolveAnotherMe>, handlers: RiftHandlers) {
   const box = el('section', 'garden-agent-meet')
   box.append(el('p', 'garden-rift-archive-kicker', `${profile.presentAge} 岁 · 这一路的人`))
-  box.append(el('p', '', `从 ${profile.forkAge} 岁走到现在，才按整段轨迹匹配。A 类同代各两位，B 类跨代各两位。中间年份不再推荐人。`))
+  box.append(el('p', '', `从 ${profile.forkAge} 岁走到现在，才按整段轨迹对照。A 类同代各两位，B 类跨代各两位。没有真实匹配分数。中间年份不再推荐人。`))
   const row = el('div', 'garden-agent-matches')
   const portraits = journeyMatchPortraits(ctx.planted, ctx.currentAge, profile.forkAge, ctx.view.walkPicks)
   const fill = (list: typeof portraits) => {
@@ -415,130 +419,25 @@ function renderBacktrack(ctx: RiftContext, handlers: RiftHandlers) {
   return wrap
 }
 
-function renderCompanions(portraits: SignalPortrait[], followSlot: string | null, handlers: RiftHandlers) {
-  const row = el('div', 'garden-rift-portraits')
-  portraits.forEach((item, index) => {
-    const card = el('div', `garden-rift-npc${item.slot === followSlot ? ' is-open' : ''}`)
-    card.style.setProperty('--orbit', String(index))
-    const planet = world('forward', item.npc.name, item.note)
-    card.append(planet, portrait(`${item.slot}:${item.npc.name}`, item.npc.avatar))
-    card.addEventListener('click', () => handlers.setFollow(item.slot === followSlot ? null : item.slot))
-    row.append(card)
-  })
-  return row
-}
-
-function fillArchive(list: HTMLElement, posts: ChoicePost[], pending: boolean) {
-  list.replaceChildren()
-  list.append(el('p', 'garden-rift-archive-kicker', pending
-    ? 'TA 写过的 · 正在检索知乎原文…'
-    : posts.some(item => item.source === 'zhihu')
-      ? 'TA 写过的 · 知乎原文'
-      : 'TA 写过的 · 演示内容 · 不是真实匹配结果'))
-  for (const post of posts) {
-    const card = el('article', 'garden-rift-archive-post')
-    card.dataset.source = post.source
-    card.append(el('small', '', `${post.age} 岁`))
-    card.append(el('h3', '', post.title))
-    card.append(el('p', '', post.excerpt))
-    const foot = el('footer')
-    foot.append(el('span', '', post.votes))
-    const link = el('a', '')
-    link.href = post.href
-    link.target = '_blank'
-    link.rel = 'noopener noreferrer'
-    link.textContent = post.source === 'zhihu' ? '阅读原文' : '阅读原文（演示）'
-    foot.append(link)
-    card.append(foot)
-    list.append(card)
-  }
-}
-
-function renderArchive(item: SignalPortrait) {
-  const list = el('section', 'garden-rift-archive')
-  const demo = bloggerArchiveFor(item)
-  fillArchive(list, demo, liveEnabled())
-  if (liveEnabled()) {
-    void hydrateAuthorArchive(item).then(posts => {
-      if (!list.isConnected) return
-      fillArchive(list, posts.length ? posts : demo, false)
-    })
-  }
-  return list
-}
-
-function renderDossier(item: SignalPortrait, scene: FollowScene, ctx: RiftContext) {
-  const card = el('article', 'garden-rift-dossier')
-  card.append(el('p', 'garden-rift-kicker', '前进 · 人物画像'))
-  card.append(el('p', 'garden-rift-demo', liveEnabled() ? '知乎原文检索 · 按你的轨迹对照 · 不是命运定论' : '演示内容 · 不是真实匹配结果'))
-  const head = el('header')
-  head.append(portrait(`${item.slot}:${item.npc.name}`, item.npc.avatar))
-  const who = el('div')
-  who.append(el('strong', '', item.npc.name))
-  who.append(el('span', '', `${item.slot} · ${item.age} 岁`))
-  who.append(el('p', '', item.npc.identity))
-  head.append(who)
-  card.append(head)
-  const explain = explainAuthored(item.choice, journeyFromRift(ctx, item.age))
-  card.append(el('p', 'garden-rift-dossier-match', explain.headline))
-  card.append(renderExplain(explain))
-  const later = el('section', 'garden-rift-dossier-later')
-  later.append(el('p', 'garden-rift-archive-kicker', scene.title))
-  later.append(el('p', 'garden-rift-dossier-match', scene.lead))
-  const beats = el('ol', 'garden-rift-beats')
-  scene.beats.forEach((beat, index) => {
-    const star = el('li', 'garden-rift-beat')
-    star.style.setProperty('--orbit', String(index))
-    star.append(el('i', 'garden-rift-spark'), el('span', '', beat))
-    beats.append(star)
-  })
-  later.append(beats)
-  card.append(later, renderArchive(item))
-  if (liveEnabled()) {
-    void loadLivePortraits(journeyFromRift(ctx, item.age), item.choice.id).then(list => {
-      if (!card.isConnected) return
-      const live = list.find(entry => entry.slot === item.slot)
-      if (!live?.explain) return
-      const old = card.querySelector('.garden-rift-explain')
-      old?.replaceWith(renderExplain(live.explain))
-      const match = card.querySelector('.garden-rift-dossier-match')
-      if (match) match.textContent = live.explain.headline
-      const head = card.querySelector('header')
-      const face = head?.querySelector('canvas, img')
-      face?.replaceWith(portrait(`${live.slot}:${live.npc.name}`, live.npc.avatar))
-      const strong = head?.querySelector('strong')
-      if (strong) strong.textContent = live.npc.name
-      const identity = head?.querySelector('p')
-      if (identity) identity.textContent = live.npc.identity
-    })
-  }
-  return card
-}
-
-function renderFollowTrail(ctx: RiftContext, handlers: RiftHandlers) {
-  const planted = lastPlanted(ctx.planted)
-  const sourceAge = planted?.age ?? (ctx.currentAge ?? 20)
-  const sourceChoice = planted?.choiceId ?? eraNodeForAge(sourceAge).choices[0].id
-  const portraits = signalPortraits(sourceAge, sourceChoice)
-  const opened = portraits.find(item => item.slot === ctx.view.followSlot)
-  const box = el('section', 'garden-rift-follow')
-  box.append(el('p', 'garden-rift-archive-kicker', '沿着相近的人生继续'))
-  box.append(el('p', 'garden-rift-hub', '这里只遇见和你同一选择的人。点谁，先看 TA 和你对上的句子。概率推演，非命运定论。'))
-  box.append(renderCompanions(portraits, opened?.slot ?? null, handlers))
-  if (opened) box.append(renderDossier(opened, followSceneForChoice(opened.choice.id), ctx))
-  return box
+function latestAgency(interview?: InterviewState | null) {
+  return [...(interview?.nodes ?? [])]
+    .reverse()
+    .map(node => node.slots.agency.trim())
+    .find(Boolean) ?? ''
 }
 
 function renderForesight(ctx: RiftContext, handlers: RiftHandlers) {
   const wrap = play('foresight')
-  wrap.append(hud('第五幕 · 前瞻 · 尚未发生的年', foresightTitle(ctx.currentAge), '三条都是可能，不是必经。点一颗星，听一位做过同类抉择的人说话。前瞻页里也能沿着相近人生继续往前。不是命运定论。'))
+  wrap.append(hud('第五幕 · 前瞻 · 尚未发生的年', foresightTitle(ctx.currentAge), '三条都是可能，不是必经。点一颗星，听一位做过同类抉择的人说话。推荐结合你的登记、种下的路和第四幕访谈。不是命运定论。'))
   const last = lastPlanted(ctx.planted)
   const lastLabel = last ? eraChoice(last.age, last.choiceId)?.label : null
   wrap.append(el('p', 'garden-rift-hub', lastLabel ? `你种下的最后一朵是「${lastLabel}」` : '从现年的岔路口往前看'))
   const skyway = el('div', 'garden-rift-skyway')
   const years = foresightYearsFor(ctx.currentAge)
+  const hints = interviewHintTexts(ctx.interview)
+  const journey = journeyFromRift(ctx, ctx.currentAge ?? years[0]?.age ?? 23)
   years.forEach((year, index) => {
-    const closest = closestForesightId(year, ctx.lastChoiceId)
+    const closest = closestForesightId(year, ctx.lastChoiceId, hints)
     const hub = el('section', 'garden-rift-year')
     hub.style.setProperty('--orbit', String(index))
     const planet = world('foresight', `${year.age} 岁`, year.hub)
@@ -557,8 +456,15 @@ function renderForesight(ctx: RiftContext, handlers: RiftHandlers) {
       card.append(el('strong', '', branch.label))
       if (open) {
         card.append(portrait(`${key}:${npc.name}`))
-        card.append(el('p', '', `${npc.name} 说：${branch.later}`))
+        const voice = el('p', 'garden-rift-voice', `${npc.name} 说：${branch.later}`)
+        card.append(voice)
         card.append(el('p', 'garden-rift-insight', `前提：${branch.premise}`))
+        if (liveEnabled()) {
+          void loadForesightVoice(journey, year.age, branch.label).then(hit => {
+            if (!voice.isConnected || !hit) return
+            voice.textContent = `${hit.author} 说：${hit.later}`
+          })
+        }
       } else {
         card.append(el('span', '', '点亮看看'))
       }
@@ -572,79 +478,225 @@ function renderForesight(ctx: RiftContext, handlers: RiftHandlers) {
     hub.append(row)
     skyway.append(hub)
   })
-  wrap.append(skyway, renderFollowTrail(ctx, handlers), actions(handlers, [
-    button('写下个人展望', openPersonalTag),
-    ...(ctx.view.followSlot ? [button('换一位再走', () => handlers.setFollow(null))] : []),
+  wrap.append(skyway, actions(handlers, [
+    button('写下个人展望', () => openPersonalTag()),
     button('结束回测', () => handlers.open('end')),
   ]))
   return wrap
 }
 
+let outlookLivePool: OutlookBlogger[] | null = null
+
+function spokenOutlook(blogger: OutlookBlogger): string {
+  const quote = portraitQuote({ quote: blogger.quote, href: blogger.href, source: blogger.source })
+  return quote ? `「${quote}」` : MATCH_HONESTY
+}
+
+export function fillOutlookAvatar(frame: HTMLElement, blogger: OutlookBlogger, title: string) {
+  const src = safeAvatarUrl(blogger.avatar)
+  frame.replaceChildren()
+  frame.setAttribute('data-avatar-state', src ? 'live' : 'placeholder')
+  frame.setAttribute('aria-label', src ? `${blogger.name}的知乎公开头像` : `${title}知乎博主头像占位`)
+
+  const viewport = el('div', 'garden-outlook-avatar-viewport')
+  if (src) {
+    const image = document.createElement('img')
+    image.alt = `${blogger.name}的知乎头像`
+    image.referrerPolicy = 'no-referrer'
+    image.src = src
+    image.addEventListener('error', () => {
+      fillOutlookAvatar(frame, { ...blogger, avatar: undefined }, title)
+    }, { once: true })
+    viewport.append(image)
+  } else {
+    const placeholder = el('div', 'garden-outlook-avatar-placeholder')
+    placeholder.append(el('span', '', '知乎头像'), el('small', '', '待公开原文载入'))
+    viewport.append(placeholder)
+  }
+
+  const caption = el('figcaption')
+  caption.append(el('span', '', '知乎博主头像'), el('small', '', src ? '公开资料' : '预留框'))
+  frame.append(viewport, caption)
+}
+
+function outlookAvatar(blogger: OutlookBlogger, title: string) {
+  const frame = el('figure', 'garden-outlook-avatar-frame')
+  fillOutlookAvatar(frame, blogger, title)
+  return frame
+}
+
+function fillOutlookCard(card: HTMLElement, blogger: OutlookBlogger, slot: 'friend' | 'consult') {
+  const title = slot === 'friend' ? '同代' : '前辈'
+  const avatar = card.querySelector<HTMLElement>('.garden-outlook-avatar-frame')
+  const name = card.querySelector('.garden-outlook-name')
+  const headline = card.querySelector('.garden-outlook-headline')
+  const quote = card.querySelector('.garden-outlook-quote')
+  const why = card.querySelector('.garden-outlook-why')
+  const link = card.querySelector<HTMLAnchorElement>('.garden-outlook-link')
+  card.setAttribute('data-source', blogger.source ?? 'authored')
+  if (avatar) fillOutlookAvatar(avatar, blogger, title)
+  if (name) name.textContent = blogger.name
+  if (headline) headline.textContent = blogger.headline
+  if (quote) quote.textContent = spokenOutlook(blogger)
+  if (why) why.textContent = blogger.why
+  if (link) {
+    link.href = slot === 'consult' ? 'https://www.zhihu.com/consult' : blogger.href
+  }
+}
+
+function renderOutlookOffer(
+  slot: 'friend' | 'consult',
+  title: string,
+  blogger: OutlookBlogger,
+  handlers: RiftHandlers,
+) {
+  const card = el('article', `garden-outlook-${slot}`)
+  card.setAttribute('data-source', blogger.source ?? 'authored')
+  const head = el('header', 'garden-outlook-head')
+  const heading = el('div', 'garden-outlook-heading')
+  heading.append(
+    el('p', 'garden-outlook-slot', slot === 'friend' ? 'SAME GENERATION' : 'PREDECESSOR'),
+    el('h2', '', title),
+  )
+  head.append(heading)
+  const refresh = el('button', 'garden-outlook-refresh')
+  refresh.type = 'button'
+  refresh.setAttribute('aria-label', `刷新${title}`)
+  refresh.textContent = '↻'
+  refresh.addEventListener('click', () => handlers.refreshOutlook?.(slot))
+  head.append(refresh)
+  card.append(head)
+
+  const body = el('div', 'garden-outlook-card-body')
+  const copy = el('div', 'garden-outlook-copy')
+  copy.append(el('strong', 'garden-outlook-name', blogger.name))
+  copy.append(el('p', 'garden-outlook-headline', blogger.headline))
+  copy.append(el('p', 'garden-rift-quote garden-outlook-quote', spokenOutlook(blogger)))
+  const link = el('a') as HTMLAnchorElement
+  link.className = 'garden-outlook-link'
+  link.href = slot === 'consult' ? 'https://www.zhihu.com/consult' : blogger.href
+  link.target = '_blank'
+  link.rel = 'noopener noreferrer'
+  link.textContent = slot === 'consult' ? '去咨询' : '去认识'
+  copy.append(link)
+  body.append(outlookAvatar(blogger, title), copy)
+  card.append(body)
+  card.append(el('p', 'garden-outlook-why', blogger.why))
+  return card
+}
+
 function renderEnd(ctx: RiftContext, handlers: RiftHandlers) {
+  const outlook = readPersonalTag()
+  const agency = latestAgency(ctx.interview)
+  const insight = endInsightFor({ planted: ctx.planted, plans: outlook.plans, agency })
+  const authored = outlookBloggerPool({ planted: ctx.planted, currentAge: ctx.currentAge })
+  const pool = outlookLivePool?.length ? outlookLivePool : authored
+  const peers = outlookKindPool(pool, 'peer')
+  const elders = outlookKindPool(pool, 'elder')
+  const friend = pickOutlookBlogger(peers, ctx.view.outlookFriend ?? 0)
+  const consult = pickOutlookBlogger(elders, ctx.view.outlookConsult ?? 0)
+
   const wrap = play('end')
-  wrap.append(hud('第六幕 · 结束 · 把选择链看成自己的', END_INSIGHT, END_LEAD))
+  wrap.append(hud('第五幕 · 回测报告与推荐', insight, '报告来自刚才的回溯访谈。同代和前辈按你种下的核心节点对照，不是匹配分数。没有公开原文时，不会伪造真人原话。不是命运定论。'))
 
-  const letter = endSkyLetterFor(ctx.planted, readPersonalTag().plans, ctx.currentAge)
-  const sky = el('article', 'garden-rift-end-sky')
-  sky.append(el('p', 'garden-rift-archive-kicker', letter.kicker))
-  sky.append(el('p', 'garden-rift-end-era', letter.era))
-  sky.append(el('p', '', letter.reading))
-  sky.append(el('p', '', letter.courage))
-  sky.append(el('p', 'garden-rift-end-blessing', letter.blessing))
-  wrap.append(sky)
+  const report = interviewRecap(ctx.interview ?? null)
+  const synthesis = report.synthesis ?? fallbackSynthesis({
+    state: ctx.interview,
+    planted: ctx.planted,
+    profile: { lifeEvent: ctx.profileLifeEvent || '' },
+  })
+  const reportBox = el('section', 'garden-outlook-report')
+  const reportHead = el('header', 'garden-outlook-report-head')
+  const reportTitle = el('div', 'garden-outlook-report-title')
+  reportTitle.append(
+    el('p', 'garden-outlook-report-index', '05 · LIFE BACKTEST'),
+    el('h2', '', report.title || '人生回测报告'),
+  )
+  const reportKind = report.kind === 'full' ? '完整报告' : report.kind === 'partial' ? '阶段报告' : '回测摘要'
+  reportHead.append(reportTitle, el('span', 'garden-outlook-report-kind', reportKind))
+  const completed = report.nodes.filter(node => node.status === 'complete').length
+  reportHead.append(el('p', 'garden-outlook-report-meta', `${completed}/${report.nodes.length} 个访谈节点已核验 · ${ctx.planted.length} 段选择进入回测`))
 
-  const recap = el('article', 'garden-rift-end-recap')
-  recap.append(el('p', 'garden-rift-archive-kicker', '你走过的选择链'))
-  const chain = el('ol', 'garden-rift-end-chain')
+  const reportBody = el('div', 'garden-outlook-report-body')
+  const interviewColumn = el('section', 'garden-outlook-report-column is-interview')
+  interviewColumn.append(el('p', 'garden-outlook-report-section', '访谈回看'))
+  if (report.empty) {
+    interviewColumn.append(el('p', 'garden-outlook-report-empty', synthesis.nodes.length
+      ? '访谈还没有完成信息核验。右侧先按你种下的选择生成轨迹摘要。'
+      : '这一局还没有做完回测'))
+    for (const node of report.nodes) {
+      const pending = el('article', 'garden-outlook-report-node is-pending')
+      pending.append(el('h3', '', `${node.age} 岁 · ${node.title}`))
+      pending.append(el('p', '', '待回到第四幕继续核验'))
+      interviewColumn.append(pending)
+    }
+  } else {
+    for (const node of report.nodes) {
+      const nodeBox = el('article', 'garden-outlook-report-node')
+      nodeBox.append(el('h3', '', node.status === 'complete'
+        ? `${node.age} 岁 · ${node.title}`
+        : `${node.age} 岁 · ${node.title}（未完成）`))
+      if (node.slots.choice) nodeBox.append(el('p', '', `选择：${node.slots.choice}`))
+      if (node.slots.motive) nodeBox.append(el('p', '', `动因：${node.slots.motive}`))
+      if (node.slots.constraint) nodeBox.append(el('p', '', `约束：${node.slots.constraint}`))
+      if (node.slots.alternative) nodeBox.append(el('p', '', `备选：${node.slots.alternative}`))
+      nodeBox.append(el('p', 'garden-outlook-report-agency', `核验：${node.slots.agency || '尚未核验'}`))
+      interviewColumn.append(nodeBox)
+    }
+  }
+
+  const synthesisColumn = el('section', 'garden-outlook-report-column is-synthesis')
+  synthesisColumn.append(el('p', 'garden-outlook-report-section', '轨迹提炼'))
+  for (const node of synthesis.nodes) {
+    const nodeBox = el('article', 'garden-outlook-report-node is-synthesis')
+    nodeBox.append(el('h3', '', `${node.age} 岁 · ${node.title}`))
+    nodeBox.append(el('p', '', `代价：${node.cost}`))
+    nodeBox.append(el('p', '', `成就：${node.gain}`))
+    synthesisColumn.append(nodeBox)
+  }
+  if (synthesis.eventReason) synthesisColumn.append(el('p', 'garden-outlook-report-highlight', `核心原因：${synthesis.eventReason}`))
+  if (synthesis.method) synthesisColumn.append(el('p', 'garden-outlook-report-highlight', `前瞻方法论：${synthesis.method}`))
+  synthesisColumn.append(el('p', 'garden-outlook-report-section is-trail', '月面选择链'))
   if (!ctx.planted.length) {
-    chain.append(el('li', 'is-empty', '这一局还没有花。空白也可以是开始。'))
+    synthesisColumn.append(el('p', 'garden-outlook-report-empty', '这一局还没有花。空白也可以是开始。'))
   } else {
     ctx.planted.forEach(item => {
       const choice = plantedChoice(item)
       const node = eraNodeForAge(item.age)
-      const row = el('li')
-      row.append(el('strong', '', `${item.age} 岁`))
-      row.append(el('span', '', `${node.event} · ${choice?.label ?? item.choiceId}`))
-      chain.append(row)
+      synthesisColumn.append(el('p', 'garden-outlook-report-trail', `${item.age} 岁 · ${node.event} · ${choice?.label ?? item.choiceId}`))
     })
   }
-  recap.append(chain)
+  reportBody.append(interviewColumn, synthesisColumn)
+  reportBox.append(reportHead, reportBody)
 
-  const outlook = readPersonalTag()
-  if (outlook.plans) {
-    const note = el('section', 'garden-rift-end-outlook')
-    note.append(el('p', 'garden-rift-archive-kicker', '你写下的个人展望'))
-    note.append(el('p', '', outlook.plans))
-    recap.append(note)
+  const offers = el('div', 'garden-outlook-offers')
+  const friendCard = renderOutlookOffer('friend', '同代', friend, handlers)
+  const consultCard = renderOutlookOffer('consult', '前辈', consult, handlers)
+  offers.append(friendCard, consultCard)
+
+  const yanxuan = el('a', 'garden-outlook-yanxuan') as HTMLAnchorElement
+  yanxuan.href = YANXUAN_HREF
+  yanxuan.target = '_blank'
+  yanxuan.rel = 'noopener noreferrer'
+  yanxuan.textContent = '盐选会员'
+  const vip = el('p', 'garden-outlook-yanxuan-note', '长期付费 · 把回测之后的阅读继续下去')
+  const bar = el('div', 'garden-outlook-yanxuan-wrap')
+  bar.append(vip, yanxuan)
+
+  if (liveEnabled()) {
+    const last = ctx.planted.at(-1)
+    const age = last?.age ?? ctx.currentAge ?? 22
+    void loadOutlookBloggers(journeyFromRift(ctx, age), 8).then(list => {
+      if (!list.length) return
+      outlookLivePool = list
+      if (!offers.isConnected) return
+      fillOutlookCard(friendCard, pickOutlookBlogger(outlookKindPool(list, 'peer'), ctx.view.outlookFriend ?? 0), 'friend')
+      fillOutlookCard(consultCard, pickOutlookBlogger(outlookKindPool(list, 'elder'), ctx.view.outlookConsult ?? 0), 'consult')
+    })
   }
 
-  const last = lastPlanted(ctx.planted)
-  const featuredChoice = last ? plantedChoice(last) : undefined
-  if (featuredChoice) {
-    const explain = explainAuthored(featuredChoice, journeyFromRift(ctx, last!.age))
-    const bubble = el('article', 'garden-rift-bubble garden-rift-end-blogger')
-    bubble.append(portrait(`end:${featuredChoice.npc.name}`, featuredChoice.npc.avatar))
-    const who = el('div')
-    who.append(el('strong', '', `还想跟 ${featuredChoice.npc.name} 聊下去`))
-    who.append(el('p', '', `${featuredChoice.npc.identity} · ${last!.age} 岁 · ${featuredChoice.label}`))
-    bubble.append(who)
-    bubble.append(renderExplain(explain))
-    recap.append(bubble)
-  }
-
-  const convert = el('div', 'garden-rift-convert')
-  for (const exit of DEMO_EXITS) {
-    const link = el('a', 'garden-rift-exit-star')
-    link.href = exit.href
-    link.target = '_blank'
-    link.rel = 'noopener noreferrer'
-    link.append(el('strong', '', exit.title), el('span', '', exit.copy))
-    convert.append(link)
-  }
-  recap.append(convert)
-  wrap.append(recap, actions(handlers, [
-    button('写下个人展望', openPersonalTag),
-    button('再看前瞻', () => handlers.open('foresight')),
+  wrap.append(reportBox, offers, bar, actions(handlers, [
+    button('写下个人展望', () => openPersonalTag('outlook')),
     button('从第一幕重新体验', handlers.toShore),
   ]))
   return wrap

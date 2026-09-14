@@ -538,7 +538,7 @@ export function signalPortraits(age: number, choiceId: string, mode: PortraitMod
     }))
   }
   return [
-    { slot: SIGNAL_SLOTS[0], kind: 'A', npc: chosen.npc, note: `${chosen.peer > 0 ? `${chosen.peer}% 的同龄人这样选` : '也有人走了相近的路'}`, choice: chosen, age: current.age },
+    { slot: SIGNAL_SLOTS[0], kind: 'A', npc: chosen.npc, note: '也有人走了相近的路，这是对照，不是匹配分数', choice: chosen, age: current.age },
     { slot: SIGNAL_SLOTS[3], kind: 'B', npc: { ...cross.npc, match: `在另一个年纪，TA 也面对过相近的分岔。` }, note: '相似的困境，不同的时代', choice: chosen, age: crossNode.age },
   ]
 }

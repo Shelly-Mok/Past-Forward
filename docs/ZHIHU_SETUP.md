@@ -48,6 +48,10 @@ pnpm dev --host 127.0.0.1 --port 4174 --strictPort
 | `POST /api/life/match` | 按关键词做知乎公开搜索，供裂隙帖子与人物对照水合 |
 | `POST /api/life/nodes/query` | 按年龄节点发现可能的选择（与 match 共用搜索） |
 | `GET /api/life/author` | 按作者名 + 提示词搜索 |
+| `POST /api/life/candidates` | 第四幕 2–3 位候选人；失败回退演示卡 |
+| `POST /api/life/persona` | 选定作者后截断公开帖 |
+| `POST /api/life/dialogue` | 模型下一问；无密钥时 503 |
+| `POST /api/life/report` | 完整报告须状态机通过，否则 409 |
 
 前端裂隙页会先画本地演示帖，再请求上述接口。成功后替换为知乎原文链接和摘要；失败保留「演示内容 · 不是真实匹配结果」。自动化测试默认 `VITE_ZHIHU_LIVE=0`，不消耗搜索额度。
 

@@ -1,15 +1,21 @@
 import './garden.css'
-import type { ArchiveProfile } from '../archive/archiveInterview'
+import { readLifeEvents, type ArchiveProfile } from '../archive/archiveInterview'
 import { eraChoice, eraNodeForAge, isOwnChoice, OWN_CHOICE_ID, npcFace, paintFlowerKind, signalPortraits, timelineFlowerPose, withOwnChoice, type EraChoice, type EraNode } from './gardenContent'
-import { ageValue, chapterForAge, chapterLabel, cleanProfile, forkAges, GARDEN_SAVE_KEY, hasPlanted, linePlanted, newGardenState, nextTimelineAge, restoreGardenState, shouldEnterCrossroads, timelineBand, timelineNodes, upsertPlanted, type GardenState } from './gardenState'
+import { EVENT_MARK_ID, eventEraFallback, eventMarkChoice, eventMarkPortraits, eventPlantedLabel, eventYearChoices, eventYearMemoryVisible, lifeEventAtAge, type EventYearPayload } from './gardenEventYear'
+import { ageValue, chapterForAge, chapterLabel, cleanProfile, eventAgesFor, eventTalkAt, forkAges, GARDEN_SAVE_KEY, hasPlanted, interviewTrail, lineIdeal, linePlanted, newGardenState, nextTimelineAge, resetYearChoice, restoreGardenState, shouldEnterCrossroads, timelineBand, timelineNodes, upsertPlanted, type GardenState } from './gardenState'
 import { BOARDING_DOOR, CHOICE_DOOR, GARDEN_HOME, GardenActor, choiceLane, choicePads, soilForAge, spreadGroundPoints } from './gardenActor'
+import { readInterviewSave } from '../interview/interviewState'
 import { renderRiftView, type RiftView } from './gardenRift'
 import { prevAgentState, resolveForkAge } from './anotherMe'
 import { RIFT_HOLES, choicePostFor, holeById, holeHintFor, type RiftKind } from './riftContent'
-import { liveEnabled, loadLifeNode, loadLivePortraits, type LivePortrait } from '../zhihu/liveContent'
+import { liveEnabled, loadEventYear, loadLifeNode, loadLivePortraits, type LivePortrait } from '../zhihu/liveContent'
 import { explainAuthored, journeyContext } from '../zhihu/recommend'
 import { paintRiftWorld } from './paintRiftWorld'
+import { eraHeading, EVENT_NOTE_COPY, EVENT_TALK_HINT, EVENT_TALK_READY, EVENT_TALK_START, eventTalkActionLabel, eventTalkLaunchVisible, IDEAL_NOTE, MATCH_HONESTY, NOTE_IS_NOT_CHOICE, NPC_KIND_NOTE, portraitQuote, PRESENT_ADVANCE, unfinishedEventTalk } from './gardenCopy'
+import { personalTagPayload, readPersonalTag, upsertPersonalEventNote } from '../outlook/personalTag'
+import { readEventTalk, readEventTalks, writeEventTalk } from './eventTalkSave'
 import { flowerEndpoint, flowerPoseAt, FLOWER_POSES } from './flowerLifecycle'
+import { buildLifeConnections, buildLifePatch, buildStarClusters, calculateVitality, clearShipOverlay, drawCosmosSparkles, drawEnvironmentColor, drawEnvironmentLight, drawLifeConnections, drawLifeCracks, drawLifePatch, drawPlanetSurfaceRegions, drawStarClusters, drawSurfaceGrowth } from './gardenLifeColor'
 
 function read(key: string, session = false): string | null {
   try { return (session ? sessionStorage : localStorage).getItem(key) } catch { return null }
@@ -28,11 +34,13 @@ export function writeArchiveProfile(profile: ArchiveProfile) {
   try { localStorage.setItem('life-backtest.archive-profile', safe) } catch { /* In-memory garden still starts. */ }
 }
 
-type GardenPhase = 'era' | 'choices' | 'inspect' | 'npc' | 'launch' | 'crossroads' | 'rift'
+type GardenPhase = 'era' | 'choices' | 'inspect' | 'ideal' | 'awakening' | 'npc' | 'launch' | 'crossroads' | 'rift'
 type LaunchBeat = 'board' | 'voyage'
 const FLIGHT_CLASSES = [
   'is-swallowing', 'is-taking-off', 'is-in-flight', 'is-departing', 'is-boarding', 'is-launching',
 ] as const
+const FLOWER_COLORS = ['#f3e8b5', '#b8bdc9', '#7770e8', '#9b78aa', '#ef6d5f', '#bde8f2', '#83d8ff', '#a51f35'] as const
+const FLOWER_FRAMES_PER_KIND = 16
 
 export function createGardenScene(host: HTMLElement) {
   const root = document.createElement('section')
@@ -44,8 +52,21 @@ export function createGardenScene(host: HTMLElement) {
       <i class="garden-earth-sky" aria-hidden="true"></i>
       <img class="garden-earth" src="/assets/garden/moon-garden-clean-v1.png" alt="" aria-hidden="true" />
       <img class="garden-background" src="/assets/garden/moon-garden-clean-v1.png" alt="地球悬在星空里，月面档案室静立于远处" />
+      <i class="garden-cosmos-atmosphere" aria-hidden="true"></i>
+      <canvas class="garden-cosmos-color" width="1672" height="941" aria-hidden="true"></canvas>
+      <canvas class="garden-cosmos-stars" width="1672" height="941" aria-hidden="true"></canvas>
+      <canvas class="garden-life-color" width="1672" height="941" aria-hidden="true"></canvas>
+      <canvas class="garden-life-growth" width="1672" height="941" aria-hidden="true"></canvas>
+      <canvas class="garden-life-light" width="1672" height="941" aria-hidden="true"></canvas>
+      <i class="garden-planet-rim" aria-hidden="true"></i>
+      <i class="garden-ship-contact" aria-hidden="true"></i>
+      <i class="garden-ship-ambient" aria-hidden="true"><b></b><b></b><b></b></i>
+      <i class="garden-vitality-wash" aria-hidden="true"></i>
+      <i class="garden-awakening-wave" aria-hidden="true"></i>
       <div class="garden-shade" aria-hidden="true"></div>
       <i class="garden-galaxy" hidden aria-hidden="true"></i>
+      <i class="garden-space-palette" aria-hidden="true"></i>
+      <i class="garden-earth-palette" aria-hidden="true"></i>
       <i class="garden-warp" hidden aria-hidden="true"></i>
       <canvas class="garden-player" width="1672" height="941" aria-hidden="true"></canvas>
       <button class="garden-player-hit" type="button" aria-label="与主角打个招呼" title="与主角打个招呼"></button>
@@ -61,7 +82,7 @@ export function createGardenScene(host: HTMLElement) {
         </header>
         <p class="garden-transit-center">—— 一个新的节点正在形成 ——</p>
       </aside>
-      <header class="garden-location"><span>月面人生花园</span><small class="garden-location-note">第三幕 · 时间回声</small><p class="garden-crossroads-note" hidden></p></header>
+      <header class="garden-location"><span>月面人生花园</span><small class="garden-location-note">第三幕 · 时间回声</small><div class="garden-vitality-meter" role="progressbar" aria-label="星球生命力" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><small>星球生命力</small><b>0%</b><i aria-hidden="true"><em></em></i></div><p class="garden-crossroads-note" hidden></p></header>
       <nav class="garden-signals" hidden aria-label="人生内容接口">
         <span class="garden-signals-kicker">与你相近的人生信号</span>
         <div class="garden-signals-body"></div>
@@ -70,12 +91,13 @@ export function createGardenScene(host: HTMLElement) {
         <small>零点小姐 · 时间回声</small>
         <p class="garden-age"></p><h1 tabindex="-1"></h1><p class="garden-note"></p>
         <ul class="garden-choice-stats" hidden></ul>
-        <div class="garden-copy-actions"><button type="button" data-action="enter">查看这一年的选择 <span>↗</span></button><button type="button" class="garden-replay" data-action="replay" hidden>重看这一年的生长 ↻</button><button type="button" data-action="advance" hidden>进入下一个时间点 →</button></div>
+        <div class="garden-copy-actions"><button type="button" data-action="enter">查看这一年的选择 <span>↗</span></button><button type="button" class="garden-reset-year" data-action="reset-year" hidden>重置当年选择</button><button type="button" data-action="memory" hidden>记下这一岁</button><button type="button" data-action="event-talk" hidden>打开这一年的对话</button><button type="button" data-action="advance" hidden>进入下一个时间点 →</button></div>
         <button type="button" class="garden-leave-parallel" data-action="leave-parallel" hidden>离开平行宇宙 · 回三岔口</button>
         <button type="button" class="garden-locate" data-action="target" hidden>确认回溯年龄 →</button>
       </article>
       <nav class="garden-choice-flowers" aria-label="飞船送来的选择"></nav>
       <nav class="garden-ground-flowers" aria-label="已种下的时光"></nav>
+      <p class="garden-awakening-copy" aria-live="polite" hidden><small>生命回应了你的选择</small><strong>花园正在苏醒</strong></p>
       <footer class="garden-timeline"><div class="garden-timeline-caption"><span></span><div><button type="button" data-action="chapters">40岁以后的时光 →</button><button type="button" data-action="origin">回到回溯起点 ↖</button></div></div><div class="garden-time-controls"><button type="button" data-action="previous" aria-label="更早的年龄">‹</button><div class="garden-nodes" aria-label="五年时间点"></div><button type="button" data-action="next" aria-label="更晚的年龄">›</button></div></footer>
       <div class="garden-bottom"><button type="button" data-action="restart"><kbd>R</kbd> 重新进入画面</button><div class="garden-bottom-links"><a href="/" class="garden-from-shore">从第一幕重新体验 ↗</a></div></div>
       <aside class="garden-panel" aria-label="时间档案" hidden>
@@ -86,15 +108,32 @@ export function createGardenScene(host: HTMLElement) {
         <form class="garden-form" hidden><label></label><input type="text" maxlength="500" autocomplete="off" /><button type="submit">记录</button><output aria-live="polite"></output></form>
         <div class="garden-records"></div>
       </aside>
+      <aside class="garden-event-talk" hidden aria-label="重大事件回看">
+        <button type="button" class="garden-event-talk-close" aria-label="收起对话">×</button>
+        <small class="garden-event-talk-kicker">全部选择已经种下 · 回看这一年</small>
+        <h2 class="garden-event-talk-title"></h2>
+        <p class="garden-event-talk-lead">以这件事之前的选择为背景，对照整条时间线。我会披露同一节点当时考虑什么、得到什么、失去什么。</p>
+        <p class="garden-event-talk-ready"></p>
+        <div class="garden-event-talk-log" aria-live="polite"></div>
+        <button type="button" class="garden-event-talk-start">开始这一年的对话</button>
+        <form class="garden-event-talk-form">
+          <label>
+            <span class="sr-only">接着问这一年</span>
+            <input type="text" maxlength="400" autocomplete="off" aria-label="接着问这一年" placeholder="还可以接着问" />
+          </label>
+          <button type="submit">发送</button>
+        </form>
+      </aside>
       <img class="garden-orbit-sky" src="/assets/garden/orbit-ship-idle.png" alt="" hidden aria-hidden="true" />
       <img class="garden-orbit-ship" src="/assets/garden/orbit-ship-thrust.png" alt="" hidden aria-hidden="true" />
-      <nav class="garden-holes" hidden aria-label="月面三岔口"></nav>
+      <i class="garden-orbit-ship-palette" aria-hidden="true"></i>
+      <nav class="garden-holes" hidden aria-label="回溯入口"></nav>
       <i class="garden-void" aria-hidden="true"></i>
       <p class="garden-asset-error" hidden>月面素材未能完整加载，请刷新重试。你的登记资料仍会保留。</p>
     </div>
     <aside class="garden-rift" hidden aria-label="裂隙回测">
       <div class="garden-rift-inner">
-        <button type="button" class="garden-rift-back">返回三岔口</button>
+        <button type="button" class="garden-rift-back">返回入口</button>
         <div class="garden-rift-body"></div>
       </div>
     </aside>`
@@ -102,6 +141,14 @@ export function createGardenScene(host: HTMLElement) {
   const find = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!
   const frame = find<HTMLElement>('.garden-frame')
   const panel = find<HTMLElement>('.garden-panel')
+  const eventTalk = find<HTMLElement>('.garden-event-talk')
+  const eventTalkTitle = find<HTMLElement>('.garden-event-talk-title')
+  const eventTalkLead = find<HTMLElement>('.garden-event-talk-lead')
+  const eventTalkReady = find<HTMLElement>('.garden-event-talk-ready')
+  const eventTalkLog = find<HTMLElement>('.garden-event-talk-log')
+  const eventTalkStart = find<HTMLButtonElement>('.garden-event-talk-start')
+  const eventTalkForm = find<HTMLFormElement>('.garden-event-talk-form')
+  const eventTalkInput = eventTalkForm.querySelector('input')!
   const form = find<HTMLFormElement>('.garden-form')
   const input = form.querySelector('input')!
   const output = form.querySelector('output')!
@@ -113,12 +160,22 @@ export function createGardenScene(host: HTMLElement) {
   const nodes = find<HTMLElement>('.garden-nodes')
   const hatch = find<HTMLElement>('.garden-hatch')
   const player = find<HTMLCanvasElement>('.garden-player').getContext('2d')!
+  const lifeCanvas = find<HTMLCanvasElement>('.garden-life-color')
+  const lifeColor = lifeCanvas.getContext('2d')!
+  const growthCanvas = find<HTMLCanvasElement>('.garden-life-growth')
+  const lifeGrowth = growthCanvas.getContext('2d')!
+  const cosmosCanvas = find<HTMLCanvasElement>('.garden-cosmos-color')
+  const cosmosColor = cosmosCanvas.getContext('2d')!
+  const cosmosStarsCanvas = find<HTMLCanvasElement>('.garden-cosmos-stars')
+  const cosmosStars = cosmosStarsCanvas.getContext('2d')!
+  const lifeLightCanvas = find<HTMLCanvasElement>('.garden-life-light')
+  const lifeLight = lifeLightCanvas.getContext('2d')!
   const sprite = new Image()
   sprite.src = '/assets/player/player-walk-sheet-v2.png'
   const actionSprite = new Image()
   actionSprite.src = '/assets/player/player-plant-sheet-v1.png'
   const flowers = new Image()
-  flowers.src = '/assets/garden/flower-lifecycle-v1.png'
+  flowers.src = '/assets/garden/flower-lifecycle-kinds-v2.png'
   const kinds = new Image()
   kinds.src = '/assets/garden/flower-kinds-v1.png'
   let state: GardenState = restoreGardenState(read(GARDEN_SAVE_KEY), readArchiveProfile())
@@ -129,6 +186,7 @@ export function createGardenScene(host: HTMLElement) {
   let selectedSignal: string | null = null
   let activatedAge: number | null = null
   const liveNodes = new Map<number, EraNode>()
+  const eventYearLive = new Map<number, EventYearPayload>()
   const livePortraits = new Map<string, LivePortrait[]>()
   const ownDrafts = new Map<number, string>()
   let liveRequest = 0
@@ -146,12 +204,17 @@ export function createGardenScene(host: HTMLElement) {
   let shipTimer = 0
   let landTimer = 0
   let swallowTimer = 0
+  let awakeningTimer = 0
+  let eventTalkCue: { age: number, text: string } | null = null
+  const openedEventTalkAges = new Set<number>()
   let panelMode: 'profile' | 'target' | 'memory' | 'signal' | 'fork' = 'memory'
   let returnFocus: HTMLElement | null = null
   let sound: AudioContext | undefined
   let assetsReady = false
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches
   const flowerDrawKeys = new WeakMap<HTMLCanvasElement, string>()
+  let lifeDrawKey = ''
+  const starClusters = buildStarClusters()
   const awayFromGarden = () => phase === 'launch' || phase === 'crossroads' || phase === 'rift'
   const launchBeat = () => (root.dataset.launchBeat ?? '') as LaunchBeat | ''
   const inFlight = () => phase === 'launch' || FLIGHT_CLASSES.some(name => root.classList.contains(name))
@@ -184,16 +247,166 @@ export function createGardenScene(host: HTMLElement) {
   function grown() {
     return linePlanted(state)
   }
+  function extras() {
+    return eventAgesFor(state)
+  }
+  function kindSlot(kind?: number) {
+    return ((kind ?? 0) % FLOWER_COLORS.length + FLOWER_COLORS.length) % FLOWER_COLORS.length
+  }
+  function plannedAges() {
+    return [...new Set([0, 1, 2].flatMap(band => timelineNodes(band, state.target.age, state.selectedAge, state.currentAge, extras())))]
+  }
+  function pendingGrowth() {
+    if (!planting || plantedHere(planting.age, planting.choiceId) || actor.revisit) return 0
+    const sample = flowerSample(planting)
+    return Math.max(0, Math.min(1, (sample.pose + sample.mix) / (FLOWER_FRAMES_PER_KIND - 1)))
+  }
+  function drawLifeColor(value: number, pending: number) {
+    const planted = grown().filter(item => state.currentAge === null || item.age <= state.currentAge)
+    const items = planting && !actor.revisit && !plantedHere(planting.age, planting.choiceId)
+      ? [...planted, planting]
+      : planted
+    const soils = spreadGroundPoints(items.map(item => soilForAge(item.age, state.currentAge)))
+    const patches = items.map((item, index) => {
+      const kind = kindSlot(choiceAt(item.age, item.choiceId)?.flowerKind)
+      const growing = planting?.age === item.age && planting.choiceId === item.choiceId && !plantedHere(item.age, item.choiceId)
+      // Before the flower is mostly open only a hairline root signal is visible.
+      const reveal = growing
+        ? pending < .66 ? pending * .12 : .08 + (pending - .66) / .34 * .92
+        : 1
+      return { patch: buildLifePatch(item.age, item.choiceId, kind, soils[index]), reveal: Math.max(0, Math.min(1, reveal)) }
+    })
+    const key = [
+      String(Math.round(value * 48)),
+      ...patches.map(({ patch, reveal }) => `${patch.age}:${patch.choiceId}:${patch.flowerKind}:${patch.root.x.toFixed(0)}:${Math.round(reveal * 24)}`),
+    ].join('|')
+    if (lifeDrawKey === key) return
+    lifeDrawKey = key
+    lifeCanvas.width = 1672
+    lifeCanvas.height = 941
+    cosmosCanvas.width = 1672
+    cosmosCanvas.height = 941
+    cosmosStarsCanvas.width = 1672
+    cosmosStarsCanvas.height = 941
+    lifeLightCanvas.width = 1672
+    lifeLightCanvas.height = 941
+    growthCanvas.width = 1672
+    growthCanvas.height = 941
+    lifeColor.imageSmoothingEnabled = false
+    cosmosColor.imageSmoothingEnabled = false
+    cosmosStars.imageSmoothingEnabled = false
+    lifeLight.imageSmoothingEnabled = false
+    lifeGrowth.imageSmoothingEnabled = false
+    lifeColor.clearRect(0, 0, lifeCanvas.width, lifeCanvas.height)
+    cosmosColor.clearRect(0, 0, cosmosCanvas.width, cosmosCanvas.height)
+    cosmosStars.clearRect(0, 0, cosmosStarsCanvas.width, cosmosStarsCanvas.height)
+    lifeLight.clearRect(0, 0, lifeLightCanvas.width, lifeLightCanvas.height)
+    lifeGrowth.clearRect(0, 0, growthCanvas.width, growthCanvas.height)
+    drawPlanetSurfaceRegions(lifeColor, patches)
+    drawSurfaceGrowth(lifeGrowth, patches)
+    drawStarClusters(cosmosColor, starClusters, value)
+    drawCosmosSparkles(cosmosStars, starClusters, value)
+    const completedPatches = patches.filter(item => item.reveal >= 1).map(item => item.patch)
+    const connections = buildLifeConnections(completedPatches, value)
+    drawLifeConnections(lifeColor, connections, value)
+    drawLifeConnections(lifeLight, connections, value, true)
+    for (const { patch, reveal } of patches) {
+      drawLifePatch(lifeColor, patch, reveal)
+      drawLifeCracks(lifeLight, patch, reveal)
+    }
+    clearShipOverlay(lifeColor)
+    clearShipOverlay(lifeGrowth)
+    clearShipOverlay(lifeLight)
+    drawEnvironmentColor(lifeColor, value)
+    drawEnvironmentLight(lifeLight, value)
+  }
+  function updateVitality() {
+    const total = Math.max(1, plannedAges().length)
+    const pending = pendingGrowth()
+    const value = calculateVitality(grown().length, total, pending)
+    const percent = Math.round(value * 100)
+    root.style.setProperty('--garden-vitality', value.toFixed(4))
+    root.dataset.vitality = String(percent)
+    const meter = find<HTMLElement>('.garden-vitality-meter')
+    meter.setAttribute('aria-valuenow', String(percent))
+    const label = meter.querySelector('b')
+    if (label) label.textContent = `${percent}%`
+    drawLifeColor(value, pending)
+  }
   function plantedHere(age = state.selectedAge, choiceId?: string) {
     return hasPlanted(grown(), age, choiceId)
   }
-  function commitPlanted(age: number, choiceId: string, label?: string) {
+  function idealizedHere(age = state.selectedAge, choiceId?: string) {
+    return hasPlanted(lineIdeal(state), age, choiceId)
+  }
+  function commitChoice(list: 'planted' | 'ideal', age: number, choiceId: string, label?: string) {
     const item: GardenState['planted'][number] = { age, choiceId, ...(label ? { label } : {}) }
-    if (state.line === 'parallel' && state.forkAge !== null && age >= state.forkAge) {
-      state.parallelPlanted = upsertPlanted(state.parallelPlanted, item)
+    const walking = state.line === 'parallel' && state.forkAge !== null && age >= state.forkAge
+    if (list === 'ideal') {
+      if (walking) state.parallelIdeal = upsertPlanted(state.parallelIdeal, item)
+      else state.ideal = upsertPlanted(state.ideal, item)
       return
     }
-    state.planted = upsertPlanted(state.planted, item)
+    if (walking) state.parallelPlanted = upsertPlanted(state.parallelPlanted, item)
+    else state.planted = upsertPlanted(state.planted, item)
+  }
+  function commitPlanted(age: number, choiceId: string, label?: string) {
+    commitChoice('planted', age, choiceId, label)
+  }
+  function commitIdeal(age: number, choiceId: string, label?: string) {
+    commitChoice('ideal', age, choiceId, label)
+  }
+  function choiceLabelFor(choice: EraChoice) {
+    if (choice.id === EVENT_MARK_ID) return eventPlantedLabel(choice, eventAt()?.text || '')
+    return isOwnChoice(choice) ? ownLabel() || choice.label : choice.label
+  }
+  function pendingEventTalk() {
+    return unfinishedEventTalk(state, readEventTalks())
+  }
+  function eventTalkLaunch() {
+    const unfinished = pendingEventTalk()
+    const pending = Boolean(unfinished || eventTalkCue)
+    return {
+      pending,
+      visible: eventTalkLaunchVisible({ pending, away: awayFromGarden(), talkOpen: !eventTalk.hidden }),
+      target: eventTalkCue || unfinished,
+    }
+  }
+  function openPendingEventTalk(force = false) {
+    if (!force && !shouldEnterCrossroads(state.selectedAge, state.currentAge)) return false
+    const next = pendingEventTalk()
+    if (!next) return false
+    eventTalkCue = next
+    openEventTalk(next)
+    return true
+  }
+  function openCuedEventTalk() {
+    const next = eventTalkCue || pendingEventTalk() || eventTalkAt(state, state.selectedAge)
+    if (next) openEventTalk(next)
+  }
+  function enterNpcAfterIdeal() {
+    const user = grown().find(item => item.age === state.selectedAge)
+    inspected = user?.choiceId ?? inspected
+    selectedSignal = null
+    if (inspected && inspected !== EVENT_MARK_ID) requestLivePortraits(state.selectedAge, inspected)
+    clearTimeout(awakeningTimer)
+    const soil = soilForAge(state.selectedAge, state.currentAge)
+    const choice = inspected ? choiceAt(state.selectedAge, inspected) : undefined
+    root.style.setProperty('--awakening-x', `${soil.x / 1672 * 100}%`)
+    root.style.setProperty('--awakening-y', `${soil.y / 941 * 100}%`)
+    root.style.setProperty('--awakening-color', FLOWER_COLORS[kindSlot(choice?.flowerKind)])
+    phase = 'awakening'
+    root.inert = true
+    save()
+    render()
+    cue(392)
+    awakeningTimer = window.setTimeout(() => {
+      if (!active || phase !== 'awakening') return
+      root.inert = false
+      phase = 'npc'
+      render()
+      openPendingEventTalk()
+    }, reduced() ? 240 : 2100)
   }
   function cue(frequency = 280) {
     try {
@@ -222,16 +435,48 @@ export function createGardenScene(host: HTMLElement) {
       || ownDrafts.get(age)
       || ''
   }
+  function eventAt(age = state.selectedAge) {
+    return lifeEventAtAge(state.profile, age, state.target.age)
+  }
   function nodeAt(age: number): EraNode {
-    return withOwnChoice(liveNodes.get(age) ?? eraNodeForAge(age), ownLabel(age))
+    const base = withOwnChoice(liveNodes.get(age) ?? eraNodeForAge(age), ownLabel(age))
+    const event = eventAt(age)
+    if (!event) return base
+    const live = eventYearLive.get(age)
+    const planting = phase !== 'ideal' || age !== state.selectedAge
+    return {
+      ...base,
+      age,
+      title: event.text,
+      event: event.text,
+      era: live?.era || eventEraFallback(event),
+      choices: eventYearChoices(age, event, planting ? 'plant' : 'ideal', live?.ideals ?? [], base),
+    }
   }
   function era() {
     return nodeAt(state.selectedAge)
   }
   function choiceAt(age: number, choiceId: string): EraChoice | undefined {
+    const event = eventAt(age)
+    if (event && choiceId === EVENT_MARK_ID) return eventMarkChoice(age, event.text)
     return nodeAt(age).choices.find(item => item.id === choiceId) ?? eraChoice(age, choiceId)
   }
+  function requestEventYear(age: number) {
+    const event = eventAt(age)
+    if (!event || !liveEnabled()) return
+    const ticket = ++liveRequest
+    void loadEventYear({ age, event, planted: grown(), personalTag: personalTagPayload() }).then(payload => {
+      if (ticket !== liveRequest || !active || !payload) return
+      eventYearLive.set(age, payload)
+      flowerSetKey = ''
+      render()
+    })
+  }
   function requestLiveNode(age: number) {
+    if (eventAt(age)) {
+      requestEventYear(age)
+      return
+    }
     if (!liveEnabled()) return
     const ticket = ++liveRequest
     void loadLifeNode(journeyAt(age)).then(node => {
@@ -306,15 +551,25 @@ export function createGardenScene(host: HTMLElement) {
           const revisiting = event.revisit
           if (planting && !revisiting && !plantedHere(planting.age, planting.choiceId)) {
             const plantedChoice = choiceAt(planting.age, planting.choiceId)
-            commitPlanted(planting.age, planting.choiceId, plantedChoice?.label)
+            const event = lifeEventAtAge(state.profile, planting.age, state.target.age)
+            commitPlanted(
+              planting.age,
+              planting.choiceId,
+              plantedChoice ? eventPlantedLabel(plantedChoice, event?.text || '') : undefined,
+            )
             save()
           }
           planting = null
           cue(revisiting ? 260 : 348)
           inspected = inspected ?? grown().at(-1)?.choiceId ?? null
-          phase = 'npc'
-          if (inspected) requestLivePortraits(state.selectedAge, inspected)
+          if (!revisiting && !idealizedHere(state.selectedAge)) {
+            phase = 'ideal'
+          } else {
+            phase = 'npc'
+            if (inspected && inspected !== EVENT_MARK_ID) requestLivePortraits(state.selectedAge, inspected)
+          }
           render()
+          if (phase === 'npc') openPendingEventTalk()
         }
         if (event.type === 'boarded') {
           cue(118)
@@ -352,12 +607,20 @@ export function createGardenScene(host: HTMLElement) {
   }
   function drawFlower(canvas: HTMLCanvasElement, item: { age: number; choiceId: string; kind?: number }) {
     const growing = planting?.age === item.age && planting.choiceId === item.choiceId && !actor.revisit
+    const slot = kindSlot(item.kind)
+    canvas.dataset.kind = String(slot)
     if (item.kind !== undefined && !plantedHere(item.age, item.choiceId) && !growing) {
-      const slot = ((item.kind % 8) + 8) % 8
-      const key = kinds.naturalWidth ? `sheet:${slot}` : `kind:${slot}`
-      canvas.dataset.pose = String(slot)
+      const key = flowers.naturalWidth ? `atlas-preview:${slot}` : kinds.naturalWidth ? `sheet:${slot}` : `kind:${slot}`
+      canvas.dataset.pose = String(FLOWER_FRAMES_PER_KIND - 1)
       if (flowerDrawKeys.get(canvas) === key) return
-      if (kinds.naturalWidth) {
+      if (flowers.naturalWidth) {
+        canvas.width = 128
+        canvas.height = 128
+        const ctx = canvas.getContext('2d')!
+        ctx.imageSmoothingEnabled = false
+        ctx.clearRect(0, 0, 128, 128)
+        ctx.drawImage(flowers, (FLOWER_FRAMES_PER_KIND - 1) * 128, slot * 128, 128, 128, 0, 0, 128, 128)
+      } else if (kinds.naturalWidth) {
         canvas.width = 128
         canvas.height = 128
         const ctx = canvas.getContext('2d')!
@@ -372,7 +635,7 @@ export function createGardenScene(host: HTMLElement) {
     }
     const sample = flowerSample(item)
     const mix = reduced() ? 0 : Math.round(sample.mix * 8) / 8
-    const key = `${sample.pose}:${sample.next}:${mix}`
+    const key = `${slot}:${sample.pose}:${sample.next}:${mix}`
     canvas.dataset.pose = String(sample.pose)
     if (!flowers.naturalWidth || flowerDrawKeys.get(canvas) === key) return
     const ctx = canvas.getContext('2d')!
@@ -380,10 +643,10 @@ export function createGardenScene(host: HTMLElement) {
     ctx.imageSmoothingEnabled = false
     ctx.save()
     ctx.globalAlpha = 1 - mix
-    ctx.drawImage(flowers, sample.pose * 128, 0, 128, 128, 0, 0, canvas.width, canvas.height)
+    ctx.drawImage(flowers, sample.pose * 128, slot * 128, 128, 128, 0, 0, canvas.width, canvas.height)
     if (mix > 0) {
-      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = mix
-      ctx.drawImage(flowers, sample.next * 128, 0, 128, 128, 0, 0, canvas.width, canvas.height)
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = mix
+      ctx.drawImage(flowers, sample.next * 128, slot * 128, 128, 128, 0, 0, canvas.width, canvas.height)
     }
     ctx.restore(); flowerDrawKeys.set(canvas, key)
   }
@@ -398,9 +661,16 @@ export function createGardenScene(host: HTMLElement) {
       button.dataset.flowerFrame = String(Number(canvas.dataset.pose) + 1)
       const growing = planting?.age === age && planting.choiceId === choiceId && !actor.revisit && ['planting', 'rising', 'observing'].includes(actor.phase)
       button.classList.toggle('is-growing', growing)
+      const sample = flowerSample({ age, choiceId, kind })
+      const localGrowth = growing
+        ? Math.max(0, Math.min(1, (sample.pose + sample.mix) / (FLOWER_FRAMES_PER_KIND - 1)))
+        : plantedHere(age, choiceId) ? 1 : 0
+      button.style.setProperty('--flower-growth', localGrowth.toFixed(3))
+      button.style.setProperty('--flower-color', FLOWER_COLORS[kindSlot(kind)])
       const label = button.querySelector('small')
       if (growing && label && button.dataset.flowerItem === 'ground') label.textContent = FLOWER_POSES[Number(canvas.dataset.pose)]
     })
+    updateVitality()
   }
   function visibleGround() {
     const band = timelineBand(state.selectedAge)
@@ -438,29 +708,35 @@ export function createGardenScene(host: HTMLElement) {
       const growing = planting?.age === item.age && planting.choiceId === item.choiceId
       const soil = soils[index]
       const choice = choiceAt(item.age, item.choiceId)
+      const storedLabel = 'label' in item && typeof item.label === 'string' ? item.label : ''
+      const plantedName = storedLabel || (choice ? eventPlantedLabel(choice, eventAt(item.age)?.text || '') : '') || choice?.label
       const button = document.createElement('button')
       button.type = 'button'
       button.className = 'garden-ground-flower'
       button.dataset.flowerItem = 'ground'
       button.dataset.age = String(item.age)
       button.dataset.choice = item.choiceId
+      button.dataset.kind = String(kindSlot(choice?.flowerKind))
       button.dataset.chapter = String(chapterForAge(item.age))
       button.dataset.planted = String(planted || picking)
       button.style.left = `${soil.x / 1672 * 100}%`
       button.style.top = `${(soil.y + 9) / 941 * 100}%`
       button.setAttribute('aria-label', picking
-        ? `回到 ${item.age}岁 · ${choice?.label ?? '已种下的花'}`
-        : `${item.age}岁 · ${choice?.label ?? '已种下的花'}`)
+        ? `回到 ${item.age}岁 · ${plantedName || '已种下的花'}`
+        : `${item.age}岁 · ${plantedName || '已种下的花'}`)
       button.disabled = picking ? false : actor.busy || !assetsReady
       button.classList.toggle('is-planting', growing && actor.phase === 'planting')
       button.classList.toggle('is-rising', growing && actor.phase === 'rising')
       button.classList.toggle('is-rift-pick', picking)
       button.classList.toggle('is-rift-active', picking && riftView.backtrackAge === item.age)
       button.classList.toggle('is-parallel', state.line === 'parallel' && state.forkAge !== null && item.age >= state.forkAge)
+      button.style.setProperty('--flower-color', FLOWER_COLORS[kindSlot(choice?.flowerKind)])
+      button.style.setProperty('--flower-growth', planted ? '1' : '0')
+      button.style.setProperty('--flower-order', String(index))
       const canvas = document.createElement('canvas'); canvas.width = 128; canvas.height = 128
       const label = document.createElement('small')
       label.textContent = picking
-        ? `${item.age}岁 · ${choice?.label ?? '种下的花'}`
+        ? `${item.age}岁 · ${plantedName || '种下的花'}`
         : growing ? (actor.revisit ? '轻触时光' : '亲手种下') : `${item.age}岁`
       button.append(canvas, label)
       button.addEventListener('click', () => {
@@ -479,34 +755,21 @@ export function createGardenScene(host: HTMLElement) {
       drawFlower(canvas, { age: item.age, choiceId: item.choiceId, kind: choice?.flowerKind })
     })
   }
-  function choiceHint(item: EraChoice) {
-    if (isOwnChoice(item)) {
-      const written = ownLabel()
-      if (inspected === item.id) {
-        return written
-          ? (plantedHere(state.selectedAge, item.id) ? '再点一次 · 查看画像' : plantedHere(state.selectedAge) ? '再点一次 · 听听这条路' : '再点一次 · 种到星球上')
-          : '先写下你的路'
-      }
-      return written ? `自己的路 · ${written}` : '自己的路 · 等你写'
-    }
-    return inspected === item.id
-      ? (plantedHere(state.selectedAge, item.id) ? '再点一次 · 查看画像' : plantedHere(state.selectedAge) ? '再点一次 · 听听这条路' : '再点一次 · 种下')
-      : item.peer > 0 ? `${item.peer}%` : '新出现的路'
-  }
   function syncChoiceFlower(button: HTMLButtonElement, item: EraChoice, index: number) {
     button.dataset.planted = String(plantedHere( state.selectedAge, item.id))
     button.style.setProperty('--slot', String(index))
     button.classList.toggle('is-planting-away', Boolean(planting && planting.age === state.selectedAge && planting.choiceId === item.id && !actor.revisit))
     button.setAttribute('aria-pressed', String(inspected === item.id))
     button.disabled = actor.busy || !assetsReady
-    const hint = button.querySelector('small')
-    if (hint) hint.textContent = choiceHint(item)
+    const name = button.querySelector('span')
+    if (name) name.textContent = item.label
+    button.setAttribute('aria-label', item.label)
   }
   function markFlowerLanded(button: HTMLButtonElement) {
     button.classList.add('is-landed')
   }
   function renderChoiceFlowers() {
-    const showing = activatedAge === state.selectedAge && (phase === 'choices' || phase === 'inspect')
+    const showing = activatedAge === state.selectedAge && (phase === 'choices' || phase === 'inspect' || phase === 'ideal')
     choiceNav.hidden = !showing
     if (!showing) return
     const choices = era().choices
@@ -547,8 +810,7 @@ export function createGardenScene(host: HTMLElement) {
       canvas.height = 128
       const name = document.createElement('span')
       name.textContent = item.label
-      const hint = document.createElement('small')
-      button.append(halo, canvas, name, hint)
+      button.append(halo, canvas, name)
       syncChoiceFlower(button, item, index)
       button.addEventListener('click', () => inspectOrPlant(item, plantedHere(state.selectedAge)))
       button.addEventListener('pointerenter', () => actor.lookAt(pad.x))
@@ -595,10 +857,11 @@ export function createGardenScene(host: HTMLElement) {
     story.className = 'garden-signal-story'
     story.textContent = explain?.story || item.npc.causal.background
     card.append(story)
-    if (explain?.quote) {
+    const spoken = portraitQuote({ quote: explain?.quote, href: live.href })
+    if (spoken) {
       const quote = document.createElement('p')
       quote.className = 'garden-signal-quote'
-      quote.textContent = `「${explain.quote}」`
+      quote.textContent = `「${spoken}」`
       card.append(quote)
     }
     const post = choicePostFor(item.age, item.choice.id)
@@ -609,7 +872,9 @@ export function createGardenScene(host: HTMLElement) {
       link.href = href
       link.target = '_blank'
       link.rel = 'noopener noreferrer'
-      link.textContent = live.href ? '去看 TA 的原文' : `阅读原文（演示）· ${post.title}`
+      link.textContent = live.href
+        ? '去看 TA 的公开原文'
+        : `演示帖 · 不是公开原文 · ${post.title}`
       card.append(link)
     }
     return card
@@ -619,7 +884,8 @@ export function createGardenScene(host: HTMLElement) {
     const kicker = find<HTMLElement>('.garden-signals-kicker')
     const body = find<HTMLElement>('.garden-signals-body')
     const chosen = choiceAt(state.selectedAge, inspected ?? '')
-    const showInspect = Boolean(chosen) && activatedAge === state.selectedAge && phase === 'inspect'
+    const askingIdealOwn = phase === 'ideal' && chosen !== undefined && isOwnChoice(chosen) && !ownLabel()
+    const showInspect = Boolean(chosen) && activatedAge === state.selectedAge && (phase === 'inspect' || askingIdealOwn)
     const showNpc = Boolean(chosen) && activatedAge === state.selectedAge && phase === 'npc'
     const mode = showNpc ? 'npc' : showInspect ? 'inspect' : 'idle'
     root.dataset.signalMode = mode
@@ -638,9 +904,7 @@ export function createGardenScene(host: HTMLElement) {
       const title = document.createElement('strong')
       title.textContent = isOwnChoice(chosen)
         ? (ownLabel() ? `你写下了「${ownLabel()}」` : '这一圈留给你自己写')
-        : chosen.peer > 0
-          ? `${chosen.peer}% 的同龄人选择「${chosen.label}」`
-          : `这一年还出现了「${chosen.label}」`
+        : `「${chosen.label}」`
       const why = document.createElement('p')
       why.textContent = chosen.reason
       card.append(title, why)
@@ -650,11 +914,18 @@ export function createGardenScene(host: HTMLElement) {
         const field = document.createElement('label')
         field.textContent = '你这一年走的路'
         const box = document.createElement('input')
+        const ownAge = state.selectedAge
         box.type = 'text'
         box.maxLength = 40
         box.autocomplete = 'off'
+        box.setAttribute('aria-label', '你这一年走的路')
         box.placeholder = '例如：去当兵，后来又复员'
         box.value = ownLabel()
+        box.addEventListener('input', () => {
+          const draft = box.value.slice(0, 40)
+          if (draft) ownDrafts.set(ownAge, draft)
+          else ownDrafts.delete(ownAge)
+        })
         const confirm = document.createElement('button')
         confirm.type = 'submit'
         confirm.textContent = '写下这句'
@@ -665,8 +936,37 @@ export function createGardenScene(host: HTMLElement) {
           if (!written) { box.focus(); return }
           ownDrafts.set(state.selectedAge, written)
           flowerSetKey = ''
-          render()
-          find<HTMLInputElement>('.garden-own-path input')?.focus()
+          if (phase === 'ideal') {
+            commitIdeal(state.selectedAge, OWN_CHOICE_ID, written)
+            enterNpcAfterIdeal()
+            return
+          }
+          if (plantedHere(state.selectedAge) && !plantedHere(state.selectedAge, OWN_CHOICE_ID)) {
+            render()
+            find<HTMLElement>('.garden-note').textContent = '这一年已经种过了。先重置当年选择，再写下自己的路。'
+            return
+          }
+          if (plantedHere(state.selectedAge, OWN_CHOICE_ID)) {
+            commitPlanted(state.selectedAge, OWN_CHOICE_ID, written)
+            save()
+            render()
+            return
+          }
+          // Image decoding or a just-finished actor transition can briefly keep
+          // the scene busy even though this lightweight form is already usable.
+          // Retain the written sentence and start as soon as the scene is ready
+          // instead of silently dropping the submit.
+          let attempts = 0
+          const startOwnPlant = () => {
+            if ((!assetsReady || actor.busy) && active && attempts < 24) {
+              attempts += 1
+              window.setTimeout(startOwnPlant, 50)
+              return
+            }
+            const own = choiceAt(state.selectedAge, OWN_CHOICE_ID)
+            if (own) inspectOrPlant(own, false, true)
+          }
+          startOwnPlant()
         })
         card.append(ownForm)
       } else {
@@ -677,15 +977,15 @@ export function createGardenScene(host: HTMLElement) {
         card.append(story)
       }
       body.append(card)
-      if (!isOwnChoice(chosen)) requestLivePortraits(state.selectedAge, chosen.id)
+      if (!isOwnChoice(chosen) && chosen.id !== EVENT_MARK_ID) requestLivePortraits(state.selectedAge, chosen.id)
       return
     }
     if (!chosen) return
     signals.classList.toggle('is-sky', showNpc)
-    kicker.innerHTML = liveEnabled()
-      ? '飞船上方的推荐帖 <small>A 同代 · B 跨代 · 都是同一选择</small>'
-      : '飞船上方的推荐帖 <small>A 同代 · B 跨代 · 都是同一选择</small>'
-    const portraits = livePortraits.get(`${state.selectedAge}:${chosen.id}`) ?? signalPortraits(state.selectedAge, chosen.id, 'planted')
+    kicker.innerHTML = `飞船上方的对照帖 <small>${MATCH_HONESTY}</small>`
+    const portraits = chosen.id === EVENT_MARK_ID
+      ? eventMarkPortraits(state.selectedAge, chosen)
+      : livePortraits.get(`${state.selectedAge}:${chosen.id}`) ?? signalPortraits(state.selectedAge, chosen.id, 'planted')
     const opened = portraits.find(item => item.slot === selectedSignal)
     const row = document.createElement('div')
     row.className = 'garden-signal-portraits'
@@ -702,9 +1002,7 @@ export function createGardenScene(host: HTMLElement) {
       badge.textContent = item.kind === 'B' ? 'B · 跨代' : 'A · 同代'
       const name = document.createElement('strong')
       name.textContent = item.npc.name
-      const label = document.createElement('span')
-      label.textContent = item.note
-      button.append(badge, face, name, label)
+      button.append(badge, face, name)
       button.addEventListener('click', () => {
         if (actor.busy) return
         selectedSignal = item.slot === selectedSignal ? null : item.slot
@@ -718,6 +1016,16 @@ export function createGardenScene(host: HTMLElement) {
   function renderCopy() {
     const node = era()
     const stats = find<HTMLElement>('.garden-choice-stats')
+    const note = find<HTMLElement>('.garden-note')
+    delete note.dataset.guide
+    const showGuide = (title: string, detail: string) => {
+      note.dataset.guide = 'true'
+      const heading = document.createElement('strong')
+      const help = document.createElement('span')
+      heading.textContent = title
+      help.textContent = detail
+      note.replaceChildren(heading, help)
+    }
     find<HTMLElement>('.garden-age').textContent = ''
     stats.replaceChildren()
     renderSignals()
@@ -733,15 +1041,13 @@ export function createGardenScene(host: HTMLElement) {
       find<HTMLElement>('.garden-note').textContent = actor.phase === 'walking' || actor.phase === 'turning'
         ? '慢慢走过去吧。那段岁月，就在那里。'
         : actor.revisit ? '轻轻触碰，听听它留下的回声。'
-          : actor.phase === 'observing' ? '不用着急。看它从种子，一点点走到这一段岁月。'
+          : actor.phase === 'observing' ? '看它从种子，迅速长成这一段岁月。'
             : '把这颗种子放下，让这一段时光留在这里。'
       stats.hidden = true
       return
     }
     if (phase === 'era' || activatedAge !== state.selectedAge) {
-      find<HTMLElement>('h1').textContent = state.line === 'parallel'
-        ? `${state.selectedAge}岁 · 平行宇宙 · ${node.title}`
-        : `${state.selectedAge}岁 · ${node.title}`
+      find<HTMLElement>('h1').textContent = eraHeading(state.selectedAge, state.line === 'parallel')
       find<HTMLElement>('.garden-note').textContent = state.line === 'parallel' && state.forkAge !== null && state.selectedAge < state.forkAge
         ? `这一年还在主宇宙。平行宇宙从 ${state.forkAge} 岁才开始分岔。`
         : node.era
@@ -750,44 +1056,50 @@ export function createGardenScene(host: HTMLElement) {
     }
     if (phase === 'choices' || phase === 'inspect') {
       const chosen = phase === 'inspect' ? choiceAt(state.selectedAge, inspected ?? '') : undefined
-      find<HTMLElement>('h1').textContent = chosen
-        ? (isOwnChoice(chosen)
-          ? (ownLabel() ? `你写下的路：${ownLabel()}` : '这一圈留给你')
-          : `这条路：${chosen.label}`)
-        : state.line === 'parallel'
-          ? `${state.selectedAge}岁 · 平行宇宙 · ${node.event}`
-          : `${state.selectedAge}岁 · ${node.event}`
-      find<HTMLElement>('.garden-note').textContent = chosen
-        ? plantedHere(state.selectedAge, chosen.id)
-          ? '再点一次，走过去听听这一年留下的回声。不会再种一朵花。'
-          : plantedHere(state.selectedAge)
-            ? '这一年已经种过了。再点可以听听另一条路，不会再种一朵花。'
-            : (isOwnChoice(chosen)
-              ? (ownLabel() ? '再点一次左边或花朵，就把这句种到星球上。' : '写下你这一年真正走的路。')
-              : '再点一次左边或花朵，就把它种到星球上。')
-        : state.line === 'parallel'
-          ? '这是从你选的那一年分出去的时间线。点左边或点花，都可以重新选择。'
-          : '点左边的句子，或点从飞船飞出的花。最边上那一朵留给你自己写。'
-      for (const item of node.choices) {
-        const line = document.createElement('button')
-        line.type = 'button'
-        line.className = `garden-choice-stat${inspected === item.id ? ' is-open' : ''}`
-        line.disabled = actor.busy || !assetsReady
-        line.textContent = isOwnChoice(item)
-          ? (ownLabel() ? `${ownLabel()} · 你写的` : '写下你自己的路 · 等你写')
-          : item.peer > 0 ? `${item.label} · ${item.peer}%` : `${item.label} · 新出现的路`
-        line.addEventListener('click', () => inspectOrPlant(item, plantedHere(state.selectedAge)))
-        stats.append(line)
+      find<HTMLElement>('h1').textContent = eraHeading(state.selectedAge, state.line === 'parallel')
+      if (!chosen) {
+        if (eventAt()) {
+          find<HTMLElement>('.garden-note').textContent = era().era
+        } else {
+          showGuide(
+            state.line === 'parallel' ? '重新选择一朵花' : '选择一朵花',
+            '点击一次查看这条路；确认后再点击一次种下。最边上可以写自己的路。',
+          )
+        }
+      } else if (plantedHere(state.selectedAge, chosen.id)) {
+        showGuide('这朵花已经种下', '再点击一次，可以走近听它留下的回声；不会重复种植。')
+      } else if (plantedHere(state.selectedAge)) {
+        showGuide(`正在查看「${chosen.label}」`, '这一年已有选择。想改口请先重置；否则再次点击只会查看另一条路。')
+      } else if (isOwnChoice(chosen)) {
+        showGuide(ownLabel() ? '确认你写下的路' : '写下你自己的路', ownLabel() ? '再点击一次，把这条路种到星球上。' : '写完后确认，再种下这一年的选择。')
+      } else {
+        showGuide(`已选择「${chosen.label}」`, '再点击同一朵花，种下你的选择。')
       }
-      stats.hidden = false
+      stats.hidden = true
+      return
+    }
+    if (phase === 'ideal') {
+      const askingOwn = (() => {
+        const picked = choiceAt(state.selectedAge, inspected ?? '')
+        return Boolean(picked && isOwnChoice(picked) && !ownLabel())
+      })()
+      find<HTMLElement>('h1').textContent = `${state.selectedAge}岁 · 你更希望走哪一条？`
+      find<HTMLElement>('.garden-note').textContent = askingOwn
+        ? '写下你更希望走的那条路。不会种到星球上。'
+        : IDEAL_NOTE
+      stats.hidden = true
+      return
+    }
+    if (phase === 'awakening') {
+      find<HTMLElement>('h1').textContent = '这一朵花，正在唤醒附近的月壤。'
+      find<HTMLElement>('.garden-note').textContent = '颜色从根部向外生长。等星光稳定下来，再去看看与你相近的人生回声。'
+      stats.hidden = true
       return
     }
     const chosen = choiceAt(state.selectedAge, inspected ?? '')
     if (phase === 'npc' && chosen) {
       find<HTMLElement>('h1').textContent = '飞船上方来了推荐帖。'
-      find<HTMLElement>('.garden-note').textContent = selectedSignal
-        ? '先看这位的画像和原文。收起后还能点另外一位。看完再进入下一个时间点，那时才会念下一段时代旁白。'
-        : '先点开一位 A 类或 B 类答主。不要一次读完所有人。看完再进入下一个时间点。'
+      find<HTMLElement>('.garden-note').textContent = eventTalkLaunch().visible ? EVENT_TALK_HINT : NPC_KIND_NOTE
       stats.hidden = true
     }
   }
@@ -804,9 +1116,10 @@ export function createGardenScene(host: HTMLElement) {
     const crossNote = loc.querySelector<HTMLElement>('.garden-crossroads-note')
     if (crossNote) {
       crossNote.hidden = phase !== 'crossroads'
-      crossNote.textContent = phase === 'crossroads' ? '时间从这里分成三条。回溯、前瞻、结束。' : ''
+      crossNote.textContent = phase === 'crossroads' ? '中间这一颗是回溯。走进去，从记下的事件重走另一条路。' : ''
     }
     const transit = find<HTMLElement>('.garden-transit')
+    find<HTMLElement>('.garden-awakening-copy').hidden = phase !== 'awakening'
     const galaxy = find<HTMLElement>('.garden-galaxy')
     const warp = find<HTMLElement>('.garden-warp')
     const beat = launchBeat()
@@ -819,16 +1132,25 @@ export function createGardenScene(host: HTMLElement) {
       loc.querySelector('span')!.textContent = '前往三岔口'
       loc.querySelector('small')!.textContent = '第三幕 · 启航'
     } else if (phase === 'crossroads') {
-      loc.querySelector('span')!.textContent = '月面三岔口'
+      loc.querySelector('span')!.textContent = '回溯入口'
       loc.querySelector('small')!.textContent = `第三幕 · 现年已抵达${state.currentAge === null ? '' : ` · ${state.currentAge} 岁`}`
     } else if (phase === 'rift') {
-      loc.querySelector('span')!.textContent = holeMeta?.label ?? '裂隙'
-      loc.querySelector('small')!.textContent = holeMeta?.kicker ?? '第四幕'
+      if (riftView.kind === 'end') {
+        loc.querySelector('span')!.textContent = '回测报告'
+        loc.querySelector('small')!.textContent = '第五幕 · 报告与推荐'
+      } else {
+        loc.querySelector('span')!.textContent = holeMeta?.label ?? '裂隙'
+        loc.querySelector('small')!.textContent = holeMeta?.kicker ?? '第四幕'
+      }
     } else {
       loc.querySelector('span')!.textContent = state.line === 'parallel' ? '平行宇宙花园' : '月面人生花园'
       loc.querySelector('small')!.textContent = state.line === 'parallel' && state.forkAge !== null
         ? `第三幕 · 从 ${state.forkAge} 岁重选`
-        : '第三幕 · 时间回声'
+        : state.target.age !== null
+          ? `第三幕 · 时间回声 · 回溯 ${state.target.age} 岁`
+          : state.target.year
+            ? `第三幕 · 时间回声 · 回溯 ${state.target.year} 年`
+            : '第三幕 · 时间回声'
     }
     root.dataset.line = state.line
     root.dataset.gardenPhase = awayFromGarden() ? phase : (activatedAge === state.selectedAge ? phase : 'era')
@@ -845,16 +1167,28 @@ export function createGardenScene(host: HTMLElement) {
     find<HTMLButtonElement>('[data-action="advance"]').hidden = phase !== 'npc'
     find<HTMLButtonElement>('[data-action="advance"]').disabled = actor.busy || !assetsReady || inFlight()
     find<HTMLElement>('[data-action="advance"]').textContent = shouldEnterCrossroads(state.selectedAge, state.currentAge)
-      ? '这一年已是现在 · 前往三岔口 →'
+      ? PRESENT_ADVANCE
       : '进入下一个时间点 →'
+    const talkLaunch = eventTalkLaunch()
+    const talkButton = find<HTMLButtonElement>('[data-action="event-talk"]')
+    talkButton.hidden = !talkLaunch.visible
+    talkButton.disabled = actor.busy
+    talkButton.textContent = eventTalkActionLabel(Boolean(
+      talkLaunch.target && (openedEventTalkAges.has(talkLaunch.target.age) || (readEventTalk(talkLaunch.target.age)?.lines.length ?? 0) > 0),
+    ))
     find<HTMLElement>('.garden-signals').querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = actor.busy })
-    find<HTMLElement>('[data-action="replay"]').hidden = awayFromGarden() || plantedThisYear.length === 0
+    find<HTMLElement>('[data-action="reset-year"]').hidden = awayFromGarden() || plantedThisYear.length === 0
+    find<HTMLButtonElement>('[data-action="memory"]').hidden = !eventYearMemoryVisible({
+      eventYear: Boolean(eventAt()),
+      away: awayFromGarden(),
+      yearOpen: activatedAge === state.selectedAge && phase !== 'era',
+    })
     find<HTMLButtonElement>('[data-action="leave-parallel"]').hidden = state.line !== 'parallel' || awayFromGarden()
     find<HTMLButtonElement>('[data-action="leave-parallel"]').disabled = actor.busy
-    for (const action of ['target', 'origin', 'chapters', 'replay']) find<HTMLButtonElement>(`[data-action="${action}"]`).disabled = actor.busy
-    const values = timelineNodes(band, state.target.age, state.selectedAge, state.currentAge)
+    for (const action of ['target', 'origin', 'chapters', 'reset-year', 'memory', 'event-talk']) find<HTMLButtonElement>(`[data-action="${action}"]`).disabled = actor.busy
+    const values = timelineNodes(band, state.target.age, state.selectedAge, state.currentAge, extras())
     const laterBand = band === 0 ? 1 : band === 1 ? 2 : 0
-    const laterNodes = timelineNodes(laterBand, state.target.age, state.selectedAge, state.currentAge)
+    const laterNodes = timelineNodes(laterBand, state.target.age, state.selectedAge, state.currentAge, extras())
     const laterBeyond = laterNodes.filter(age => age > (band === 0 ? 40 : 80))
     find<HTMLButtonElement>('[data-action="chapters"]').hidden = band === 0 && laterBeyond.length === 0
     find<HTMLElement>('[data-action="chapters"]').textContent = band === 0 ? '40岁以后的时光 →' : band === 1 && laterBeyond.length ? '80岁以后的时光 →' : '← 回看0—40岁'
@@ -866,10 +1200,15 @@ export function createGardenScene(host: HTMLElement) {
       button.type = 'button'
       button.className = 'garden-node'
       button.dataset.age = String(value)
-      button.setAttribute('aria-label', `${value}岁`)
+      button.dataset.planted = String(plantedHere(value))
+      const event = readLifeEvents(state.profile, state.target.age).find(item => item.age === value)
+      button.setAttribute('aria-label', event ? `${value}岁 · 重大事件` : `${value}岁`)
       button.setAttribute('aria-pressed', String(value === state.selectedAge && activatedAge === value))
       button.disabled = actor.busy
-      if (value === state.target.age) button.title = '你的回溯起点'
+      if (event) {
+        button.dataset.event = 'true'
+        button.title = event.text
+      } else if (value === state.target.age) button.title = '你的回溯起点'
       const canvas = document.createElement('canvas')
       canvas.width = 64; canvas.height = 64
       canvas.setAttribute('aria-hidden', 'true')
@@ -892,9 +1231,49 @@ export function createGardenScene(host: HTMLElement) {
     renderGroundFlowers()
     renderHoles()
     renderRift()
+    syncNextActions()
     if (pickingBacktrackFlowers()) echoTrail(riftView.backtrackAge)
     updateFlowerFrames()
     if (focusedBefore && !focusedBefore.isConnected) root.focus({ preventScroll: true })
+  }
+  function syncNextActions() {
+    root.querySelectorAll<HTMLElement>('[data-next]').forEach(node => delete node.dataset.next)
+    delete choiceNav.dataset.awaitingChoice
+    const mark = (node: HTMLElement | null, kind: 'primary' | 'option' = 'primary') => {
+      if (!node || node.hidden || (node instanceof HTMLButtonElement && node.disabled)) return
+      node.dataset.next = kind
+    }
+
+    if (phase === 'era' || activatedAge !== state.selectedAge) {
+      mark(find<HTMLButtonElement>('[data-action="enter"]'))
+      mark(find<HTMLButtonElement>('[data-action="target"]'), 'option')
+      return
+    }
+    if (phase === 'choices' || phase === 'inspect' || phase === 'ideal') {
+      const options = [...choiceNav.querySelectorAll<HTMLButtonElement>('.garden-choice-flower:not(:disabled)')]
+      options.forEach(button => mark(button, button.dataset.choice === inspected ? 'primary' : 'option'))
+      if (!inspected && options.length > 0) choiceNav.dataset.awaitingChoice = 'true'
+      return
+    }
+    if (phase === 'npc') {
+      const launch = find<HTMLButtonElement>('[data-action="event-talk"]')
+      if (!launch.hidden) {
+        mark(launch)
+        mark(find<HTMLButtonElement>('[data-action="advance"]'), 'option')
+        return
+      }
+      mark(find<HTMLButtonElement>('[data-action="advance"]'))
+      return
+    }
+    if (phase === 'crossroads') {
+      const holes = [...holesNav.querySelectorAll<HTMLButtonElement>('.garden-hole:not(:disabled)')]
+      holes.forEach((button, index) => mark(button, index === 0 ? 'primary' : 'option'))
+      return
+    }
+    if (phase === 'rift') {
+      const actions = [...riftBody.querySelectorAll<HTMLButtonElement>('.garden-rift-actions button:not(:disabled)')]
+      actions.forEach((button, index) => mark(button, index === 0 ? 'primary' : 'option'))
+    }
   }
   function lastChoiceId() {
     return grown().at(-1)?.choiceId ?? null
@@ -959,9 +1338,12 @@ export function createGardenScene(host: HTMLElement) {
       currentAge: state.currentAge,
       targetAge: state.target.age,
       profileAge: state.profile.age ?? '',
-      profileStatus: state.profile.status ?? '',
-      profileFamily: state.profile.family ?? '',
+      profileGender: state.profile.gender ?? '',
+      profileEducation: state.profile.education ?? '',
+      profileHealth: state.profile.health ?? '',
+      profileLifeEvent: state.profile.lifeEvent ?? '',
       lastChoiceId: lastChoiceId(),
+      interview: readInterviewSave(),
       view: riftView,
     }
   }
@@ -1003,13 +1385,26 @@ export function createGardenScene(host: HTMLElement) {
       },
       startParallel: age => enterParallel(age),
       toShore: () => { window.location.href = '/' },
+      refreshOutlook: slot => {
+        riftView = {
+          ...riftView,
+          outlookFriend: slot === 'friend' ? (riftView.outlookFriend ?? 0) + 1 : riftView.outlookFriend ?? 0,
+          outlookConsult: slot === 'consult' ? (riftView.outlookConsult ?? 0) + 1 : riftView.outlookConsult ?? 0,
+        }
+        render()
+      },
     })
   }
   function resetRiftView(kind: RiftKind): RiftView {
-    return { kind, backtrackAge: null, altChoiceId: null, followSlot: null, age28Id: null, foreOpen: null, agentChapter: 'appear', agentReply: null, evidenceOpen: false, walkIndex: 0, walkPicks: {} }
+    return { kind, backtrackAge: null, altChoiceId: null, followSlot: null, age28Id: null, foreOpen: null, agentChapter: 'appear', agentReply: null, evidenceOpen: false, walkIndex: 0, walkPicks: {}, outlookFriend: 0, outlookConsult: 0 }
+  }
+  function openOutlook() {
+    openRift('end')
   }
   function beginVoyage() {
+    eventTalkCue = null
     closePanel(false)
+    closeEventTalk()
     cancelPlanting()
     clearFlight()
     rift.classList.remove('is-visible')
@@ -1096,6 +1491,13 @@ export function createGardenScene(host: HTMLElement) {
   }
   function enterHole(kind: RiftKind) {
     if (phase !== 'crossroads' || actor.busy || !assetsReady) return
+    if (kind === 'backtrack') {
+      root.dispatchEvent(new CustomEvent('life-backtest:interview-open', {
+        bubbles: true,
+        detail: { ...getContext(), actualPlanted: grown(), planted: interviewTrail(state) },
+      }))
+      return
+    }
     openRift(kind)
   }
   function openRift(kind: RiftKind) {
@@ -1166,6 +1568,33 @@ export function createGardenScene(host: HTMLElement) {
   function cancelPlanting() {
     actor.cancel(); planting = null
   }
+  function forgetLiveFrom(age: number) {
+    for (const key of [...liveNodes.keys()]) if (key >= age) liveNodes.delete(key)
+    for (const key of [...eventYearLive.keys()]) if (key >= age) eventYearLive.delete(key)
+    for (const key of [...livePortraits.keys()]) {
+      const match = key.match(/(?:^|:)(\d+):/)
+      if (match && Number(match[1]) >= age) livePortraits.delete(key)
+    }
+    for (const key of [...ownDrafts.keys()]) if (key >= age) ownDrafts.delete(key)
+  }
+  function resetThisYear() {
+    if (!active || actor.busy || root.inert || awayFromGarden()) return
+    if (!plantedHere(state.selectedAge)) return
+    const age = state.selectedAge
+    cancelPlanting()
+    closePanel(false)
+    state = resetYearChoice(state, age)
+    forgetLiveFrom(age)
+    inspected = null
+    selectedSignal = null
+    flowerSetKey = ''
+    activatedAge = age
+    phase = 'choices'
+    save()
+    requestLiveNode(age)
+    launchShip()
+    cue(174)
+  }
   function selectAge(age: number, activate = false) {
     if (!active || actor.busy || ageValue(age) === null) return
     if (awayFromGarden()) return
@@ -1184,18 +1613,121 @@ export function createGardenScene(host: HTMLElement) {
       activatedAge = null
       phase = 'era'
       hideShip()
+      if (eventAt(age)) requestEventYear(age)
       render()
     }
     cue(220 + chapterForAge(age) * 18)
     frame.classList.remove('is-time-moving'); void frame.offsetWidth; frame.classList.add('is-time-moving')
     clearTimeout(meteorTimer); meteorTimer = window.setTimeout(() => frame.classList.remove('is-time-moving'), 2000)
   }
+  function closeEventTalk() {
+    persistEventTalk()
+    eventTalk.hidden = true
+    eventTalk.dataset.age = ''
+    eventTalkLog.replaceChildren()
+    render()
+  }
+  function appendEventTalk(who: 'you' | 'other', text: string) {
+    const line = document.createElement('p')
+    line.className = `garden-event-talk-line is-${who}`
+    const name = document.createElement('small')
+    name.textContent = who === 'you' ? '你' : '记录员'
+    const body = document.createElement('span')
+    body.textContent = text
+    line.append(name, body)
+    eventTalkLog.append(line)
+    eventTalkLog.scrollTop = eventTalkLog.scrollHeight
+  }
+  function persistEventTalk() {
+    if (!eventTalk.dataset.age) return
+    const age = Number(eventTalk.dataset.age)
+    if (!Number.isFinite(age)) return
+    const event = readLifeEvents(state.profile, state.target.age).find(item => item.age === age)
+    if (!event) return
+    const lines = [...eventTalkLog.querySelectorAll('.garden-event-talk-line')].map(node => ({
+      who: node.classList.contains('is-you') ? 'you' as const : 'other' as const,
+      text: node.querySelector('span')?.textContent?.trim() || '',
+    })).filter(item => item.text)
+    writeEventTalk({ age: event.age, text: event.text, lines })
+  }
+  async function askEventTalk(message: string, opening = false) {
+    const age = Number(eventTalk.dataset.age)
+    const event = readLifeEvents(state.profile, state.target.age).find(item => item.age === age)
+    if (!event) return
+    if (!opening) appendEventTalk('you', message)
+    appendEventTalk('other', '正在对照你种下的路…')
+    const waiting = eventTalkLog.lastElementChild
+    const waitingBody = waiting?.querySelector('span')
+    const planted = grown()
+    const before = planted.filter(item => item.age < event.age)
+    try {
+      const response = await fetch('/api/life/dialogue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'event',
+          event,
+          events: readLifeEvents(state.profile, state.target.age),
+          planted,
+          before,
+          profile: state.profile,
+          currentAge: state.currentAge,
+          path: planted.map(item => `${item.age}岁 · ${item.label || item.choiceId}`).join(' → '),
+          message,
+          personalTag: personalTagPayload(),
+        }),
+      })
+      const payload = await response.json() as { ok?: boolean, reply?: string }
+      const reply = payload.ok && payload.reply?.trim()
+        ? payload.reply.trim()
+        : '模型暂时没接上。根据你记下的选择，这件事发生在那个年纪：当时考虑的是你走到这一年之前的那些选择，得到的是另一条路打开的可能，失去的是时间、关系和确定性。'
+      if (waitingBody) waitingBody.textContent = reply
+      else if (waiting) waiting.textContent = reply
+      else appendEventTalk('other', reply)
+    } catch {
+      const fallback = '模型暂时没接上。先把这件事记在这里：背景是你走到这一年之前的那些选择；当时考虑过安定和想要的路，得到的是开口，失去的是确定性。'
+      if (waitingBody) waitingBody.textContent = fallback
+      else if (waiting) waiting.textContent = fallback
+    }
+    persistEventTalk()
+  }
+  function openEventTalk(event: { age: number, text: string }) {
+    persistEventTalk()
+    eventTalkCue = event
+    openedEventTalkAges.add(event.age)
+    eventTalk.hidden = false
+    eventTalk.dataset.age = String(event.age)
+    eventTalkTitle.textContent = `${event.age}岁 · ${event.text}`
+    const before = grown().filter(item => item.age < event.age)
+    eventTalkLead.textContent = before.length
+      ? `背景是这件事之前的选择：${before.map(item => `${item.age}岁 · ${item.label || item.choiceId}`).join(' → ')}。对照整条时间线，我会披露同一节点当时考虑什么、得到什么、失去什么。`
+      : '以这件事之前的选择为背景，对照整条时间线。我会披露同一节点当时考虑什么、得到什么、失去什么。'
+    eventTalkReady.textContent = EVENT_TALK_READY
+    const saved = readEventTalk(event.age)
+    eventTalkLog.replaceChildren()
+    eventTalkStart.hidden = Boolean(saved?.lines.length)
+    eventTalkStart.textContent = EVENT_TALK_START
+    if (saved?.lines.length) {
+      for (const line of saved.lines) appendEventTalk(line.who, line.text)
+    }
+    render()
+    if (eventTalkStart.hidden) eventTalkInput.focus({ preventScroll: true })
+    else eventTalkStart.focus({ preventScroll: true })
+  }
   function activateAge(age: number) {
+    const talk = eventTalkAt(state, age)
+    if (talk) {
+      selectAge(age, false)
+      openEventTalk(talk)
+      return
+    }
+    closeEventTalk()
     selectAge(age, true)
   }
   function enterNextEra() {
-    const next = nextTimelineAge(state.selectedAge, state.target.age, state.currentAge)
+    const next = nextTimelineAge(state.selectedAge, state.target.age, state.currentAge, extras())
     if (shouldEnterCrossroads(state.selectedAge, state.currentAge, next)) {
+      if (openPendingEventTalk(true)) return
       beginVoyage()
       return
     }
@@ -1212,6 +1744,18 @@ export function createGardenScene(host: HTMLElement) {
     if (!active || actor.busy || root.inert || !assetsReady) return
     if (awayFromGarden()) return
     if (activatedAge !== state.selectedAge) activateAge(state.selectedAge)
+    if (phase === 'ideal') {
+      if (isOwnChoice(choice) && !ownLabel()) {
+        inspected = choice.id
+        selectedSignal = null
+        render()
+        find<HTMLInputElement>('.garden-own-path input')?.focus()
+        return
+      }
+      commitIdeal(state.selectedAge, choice.id, choiceLabelFor(choice))
+      enterNpcAfterIdeal()
+      return
+    }
     if (!replay && inspected !== choice.id) {
       inspected = choice.id
       selectedSignal = null
@@ -1229,7 +1773,7 @@ export function createGardenScene(host: HTMLElement) {
     }
     const yearTaken = plantedHere(state.selectedAge)
     phase = yearTaken && !replay ? 'npc' : 'choices'
-    requestLivePortraits(state.selectedAge, choice.id)
+    if (choice.id !== EVENT_MARK_ID) requestLivePortraits(state.selectedAge, choice.id)
     planting = { age: state.selectedAge, choiceId: choice.id }
     const nextPlant = planting
     const items = visibleGround()
@@ -1244,7 +1788,7 @@ export function createGardenScene(host: HTMLElement) {
   }
   function moveTime(direction: number) {
     const band = timelineBand(state.selectedAge)
-    const values = timelineNodes(band, state.target.age, state.selectedAge, state.currentAge)
+    const values = timelineNodes(band, state.target.age, state.selectedAge, state.currentAge, extras())
     const next = direction > 0 ? values.find(v => v > state.selectedAge) : values.toReversed().find(v => v < state.selectedAge)
     selectAge(next ?? Math.max(0, Math.min(100, state.selectedAge + direction * 5)))
   }
@@ -1270,7 +1814,7 @@ export function createGardenScene(host: HTMLElement) {
     if (mode === 'profile') {
       heading.textContent = '你留下的起点'
       copy.textContent = '现实资料与回看年龄分别记录，不会互相覆盖。'
-      const labels = { age: '现在的年龄', gender: '性别', family: '当前家庭情况', status: '当前学习／就业状态', rewind: '原始回溯目标' }
+      const labels = { age: '现在的年龄', gender: '性别', education: '学历', health: '生活状况', lifeEvent: '重大人生事件' }
       for (const key of Object.keys(labels) as (keyof typeof labels)[]) {
         const term = document.createElement('dt'), value = document.createElement('dd')
         term.textContent = labels[key]; value.textContent = state.profile[key] || '尚未登记'
@@ -1322,16 +1866,39 @@ export function createGardenScene(host: HTMLElement) {
       form.querySelector('label')!.textContent = '确认回溯年龄（0—100）'
       input.setAttribute('aria-label', '确认回溯年龄'); input.inputMode = 'numeric'; input.value = ''
       input.placeholder = '例如：18'
+      form.querySelector('button[type="submit"]')!.textContent = '记录'
+    } else if (eventAt()) {
+      const event = eventAt()!
+      const saved = readPersonalTag().eventNotes.find(item => item.age === event.age)
+      heading.textContent = `${event.age}岁 · 记下这一岁`
+      copy.textContent = EVENT_NOTE_COPY
+      form.querySelector('label')!.textContent = `对「${event.text}」的描述`
+      input.setAttribute('aria-label', '对这件事的描述')
+      input.inputMode = 'text'
+      input.maxLength = 800
+      input.placeholder = '例如：那天走廊很静，我还没想清楚要不要走'
+      input.value = saved?.note ?? ''
+      form.querySelector('button[type="submit"]')!.textContent = '写入个人标签'
+      renderEventNote(event, saved?.note ?? '')
     } else {
       heading.textContent = `${state.selectedAge}岁 · 时间档案`
-      copy.textContent = '这一页已经为你留好。时代背景、人生问题和相近经历，将由内容系统接入。你也可以先记下一件想回看的事。'
+      copy.textContent = NOTE_IS_NOT_CHOICE
       form.querySelector('label')!.textContent = '留给这一岁的记录'
-      input.setAttribute('aria-label', '留给这一岁的记录'); input.inputMode = 'text'; input.placeholder = '例如：那时有一个一直没有做的选择'
+      input.setAttribute('aria-label', '留给这一岁的记录'); input.inputMode = 'text'; input.maxLength = 500
+      input.placeholder = '例如：那时有一个一直没有做的选择'
       input.value = state.records.findLast(r => r.age === state.selectedAge)?.text ?? ''
+      form.querySelector('button[type="submit"]')!.textContent = '记录'
       renderRecords()
       root.dispatchEvent(new CustomEvent('life-backtest:garden-node-request', { bubbles: true, detail: getContext() }))
     }
     find<HTMLButtonElement>('.garden-panel-close').focus({ preventScroll: true })
+  }
+  function renderEventNote(event: { age: number, text: string }, note: string) {
+    const records = find<HTMLElement>('.garden-records')
+    records.replaceChildren()
+    const line = document.createElement('p')
+    line.textContent = note ? `${event.age}岁 · ${note}` : `${event.age}岁 · 还没有写下这件事当时怎样`
+    records.append(line)
   }
   function renderRecords() {
     const records = find<HTMLElement>('.garden-records'); records.replaceChildren()
@@ -1346,6 +1913,7 @@ export function createGardenScene(host: HTMLElement) {
       mode: state.currentAge !== null && state.selectedAge > state.currentAge ? 'future-exploration' : 'rewind',
       records: state.records.filter(r => r.age <= state.selectedAge),
       planted: grown(),
+      ideal: lineIdeal(state),
       reachedPresent: state.reachedPresent,
     })
   }
@@ -1355,11 +1923,19 @@ export function createGardenScene(host: HTMLElement) {
       const age = ageValue(input.value.trim())
       if (age === null) { output.textContent = '请输入0到100之间的完整年龄。'; return }
       state.target.age = age; state.selectedAge = age; save(); closePanel(); render(); cue()
+    } else if (eventAt()) {
+      const event = eventAt()!
+      const text = input.value.trim()
+      if (!text) { output.textContent = '先写下一句话，再记录。'; return }
+      upsertPersonalEventNote({ age: event.age, event: event.text, note: text })
+      renderEventNote(event, text)
+      output.textContent = '已写入个人标签。之后的对话会读到这段原话。'
+      cue()
     } else {
       const text = input.value.trim()
       if (!text) { output.textContent = '先写下一句话，再记录。'; return }
       state.records.push({ age: state.selectedAge, text, recordedAt: new Date().toISOString() })
-      state.records = state.records.slice(-100); save(); renderRecords(); output.textContent = '已记录在这一岁，仅保存在本机。'; cue()
+      state.records = state.records.slice(-100); save(); renderRecords(); output.textContent = `已记下本机笔记，${NOTE_IS_NOT_CHOICE}`; cue()
     }
   })
   window.addEventListener('keydown', event => {
@@ -1398,7 +1974,7 @@ export function createGardenScene(host: HTMLElement) {
   root.tabIndex = -1
   root.addEventListener('wheel', event => {
     const target = event.target instanceof Element ? event.target : null
-    const scroller = target?.closest('.garden-panel, .garden-signals.is-sky .garden-signal-card, .garden-scene')
+    const scroller = target?.closest('.garden-panel, .garden-signals.is-sky .garden-signal-card, .garden-event-talk-log, .garden-event-talk, .garden-scene')
     if (!(scroller instanceof HTMLElement) || scroller.hidden) return
     const max = scroller.scrollHeight - scroller.clientHeight
     if (max <= 0) return
@@ -1411,18 +1987,17 @@ export function createGardenScene(host: HTMLElement) {
     switch (b.dataset.action) {
       case 'enter': activateAge(state.selectedAge); break
       case 'advance': enterNextEra(); break
-      case 'replay': {
-        const planted = grown().find(item => item.age === state.selectedAge)
-        const choice = planted ? choiceAt(planted.age, planted.choiceId) : undefined
-        if (choice) { inspected = choice.id; inspectOrPlant(choice, true, true) }
+      case 'event-talk': openCuedEventTalk(); break
+      case 'reset-year':
+        resetThisYear()
         break
-      }
       case 'target': openPanel('target'); break
+      case 'memory': openPanel('memory'); break
       case 'previous': moveTime(-1); break
       case 'next': moveTime(1); break
       case 'leave-parallel': leaveParallel(); break
       case 'chapters': {
-        const later = timelineNodes(state.selectedAge < 40 ? 1 : 2, state.target.age, state.selectedAge, state.currentAge)
+        const later = timelineNodes(state.selectedAge < 40 ? 1 : 2, state.target.age, state.selectedAge, state.currentAge, extras())
         if (state.selectedAge < 40 && later.length) selectAge(40)
         else if (state.selectedAge < 80 && later.length) selectAge(80)
         else selectAge(0)
@@ -1434,6 +2009,20 @@ export function createGardenScene(host: HTMLElement) {
   }))
   find<HTMLButtonElement>('.garden-rift-back').addEventListener('click', () => returnToCrossroads())
   find<HTMLButtonElement>('.garden-panel-close').addEventListener('click', () => closePanel())
+  find<HTMLButtonElement>('.garden-event-talk-close').addEventListener('click', () => closeEventTalk())
+  eventTalkStart.addEventListener('click', () => {
+    if (eventTalk.hidden || eventTalkStart.hidden) return
+    eventTalkStart.hidden = true
+    void askEventTalk('请从这件事之前的那些选择讲起。当时你最看重什么？得到了什么，又失去了什么？', true)
+  })
+  eventTalkForm.addEventListener('submit', event => {
+    event.preventDefault()
+    const text = eventTalkInput.value.trim()
+    if (!text || eventTalk.hidden) return
+    eventTalkInput.value = ''
+    eventTalkStart.hidden = true
+    void askEventTalk(text)
+  })
   find<HTMLButtonElement>('.garden-player-hit').addEventListener('click', () => {
     if (actor.busy) return
     actor.greet(); cue(220)
@@ -1442,9 +2031,12 @@ export function createGardenScene(host: HTMLElement) {
   document.addEventListener('visibilitychange', () => { previousActorTime = 0 })
   function restart() {
     const busy = actor.busy
+    clearTimeout(awakeningTimer)
     root.inert = false
     cancelPlanting()
     closePanel(false)
+    eventTalkCue = null
+    closeEventTalk()
     pendingHole = null
     clearFlight()
     if (phase === 'rift') {
@@ -1483,6 +2075,7 @@ export function createGardenScene(host: HTMLElement) {
       state = arrival === 'begin' ? newGardenState(incoming) : restoreGardenState(read(GARDEN_SAVE_KEY), incoming)
       if (state.profile.age) writeArchiveProfile(state.profile)
       cancelAnimationFrame(actorFrame); actor = new GardenActor(); previousActorTime = 0; lastDraw = 0
+      clearTimeout(awakeningTimer)
       planting = null; inspected = null; selectedSignal = null; activatedAge = null; pendingHole = null
       riftView = resetRiftView('backtrack')
       phase = 'era'
@@ -1493,7 +2086,8 @@ export function createGardenScene(host: HTMLElement) {
       actorFrame = requestAnimationFrame(animateActor)
       root.focus({ preventScroll: true })
     },
-    hide() { active = false; clearFlight(); cancelAnimationFrame(actorFrame); cancelPlanting(); clearTimeout(meteorTimer); clearTimeout(shipTimer); clearTimeout(landTimer); rift.classList.remove('is-visible'); root.hidden = true; void sound?.suspend() },
+    hide() { active = false; clearFlight(); cancelAnimationFrame(actorFrame); cancelPlanting(); closeEventTalk(); clearTimeout(meteorTimer); clearTimeout(shipTimer); clearTimeout(landTimer); clearTimeout(awakeningTimer); root.inert = false; rift.classList.remove('is-visible'); root.hidden = true; void sound?.suspend() },
+    openOutlook,
     getContext,
   }
 }

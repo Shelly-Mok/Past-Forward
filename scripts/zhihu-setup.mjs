@@ -18,9 +18,14 @@ async function ensureCli() {
     return { setup: false, binaryPath: existing, status: before }
   }
   const script = skillSetupScript()
-  const command = process.platform === 'win32'
-    ? await execFileAsync('powershell', ['-ExecutionPolicy', 'Bypass', '-File', script], { timeout: 120000 })
-    : await execFileAsync('/bin/bash', [script], { timeout: 120000 })
+  let command
+  try {
+    command = process.platform === 'win32'
+      ? await execFileAsync('powershell', ['-ExecutionPolicy', 'Bypass', '-File', script], { timeout: 120000 })
+      : await execFileAsync('/bin/bash', [script], { timeout: 120000 })
+  } catch (error) {
+    command = { stdout: error.stdout || '' }
+  }
   const setup = parseJsonLine(command.stdout) || {}
   const after = await runSkillStatus()
   return {

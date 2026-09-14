@@ -1,9 +1,10 @@
 import './style.css'
 import { createArchiveScene } from './archive/createArchiveScene'
 import { createGardenScene, readArchiveProfile, writeArchiveProfile } from './garden/createGardenScene'
+import { createInterviewScene } from './interview/createInterviewScene'
 import { createPersonalTag } from './outlook/createPersonalTag'
 import type { ArchiveProfile } from './archive/archiveInterview'
-import { debugGardenProfile, isSkipDemoProfile, peekGardenSave } from './garden/gardenState'
+import { debugGardenProfile, isSkipDemoProfile, peekGardenSave, linePlanted, interviewTrail } from './garden/gardenState'
 import { projectedDragProgress, resolveMoonRelease } from './game/input/moonDrag'
 import { sampleWarpTimeline, type WarpSample } from './game/transition/warpTimeline'
 import { createWarpField } from './render/createWarpField'
@@ -24,6 +25,8 @@ const SPACE_MOON = {
 }
 const DOCKED_MOON = { x: 1372, y: 710, size: 326 }
 const DOCK_THRESHOLD = 0.78
+const WARP_DESTINATION = { x: STAGE_WIDTH * 0.5335, y: STAGE_HEIGHT * 0.469 }
+const WARP_PARTICLE_FAR = { x: WARP_DESTINATION.x - 70, y: WARP_DESTINATION.y - 40 }
 
 const app = document.querySelector<HTMLDivElement>('#app')
 if (!app) throw new Error('Missing #app')
@@ -37,7 +40,9 @@ app.innerHTML = `
         height="${STAGE_HEIGHT}"
         aria-label="黑白像素海岸。向上滚动时，月亮逐渐放大，海岸退入黑暗，星星开始显现。"
       ></canvas>
-      <div class="warp-whiteout" aria-hidden="true"></div>
+      <div class="warp-destination" aria-hidden="true">
+        <img src="/assets/archive-walk-clean-v1.png" alt="" />
+      </div>
       <button class="moon-target" type="button" aria-label="观察月亮"></button>
       <div class="life-copy-sequence" aria-hidden="true">
         <svg class="moon-copy-orbit" viewBox="0 0 400 400" focusable="false" aria-hidden="true">
@@ -90,6 +95,7 @@ app.innerHTML = `
             <small>看看你最终会成为谁</small>
           </div>
         </article>
+
       </div>
       <div class="scroll-hint" aria-live="polite">
         <span class="scroll-arrow" aria-hidden="true"></span>
@@ -114,8 +120,8 @@ app.innerHTML = `
         <img class="archive-background" src="/assets/archive-walk-clean-v1.png" alt="" />
         <i class="archive-checkpoint-light archive-checkpoint-light--age" data-checkpoint="age"></i>
         <i class="archive-checkpoint-light archive-checkpoint-light--gender" data-checkpoint="gender"></i>
-        <i class="archive-checkpoint-light archive-checkpoint-light--family" data-checkpoint="family"></i>
-        <i class="archive-checkpoint-light archive-checkpoint-light--status" data-checkpoint="status"></i>
+        <i class="archive-checkpoint-light archive-checkpoint-light--family" data-checkpoint="education"></i>
+        <i class="archive-checkpoint-light archive-checkpoint-light--status" data-checkpoint="health"></i>
         <div class="archive-screen archive-screen--large"><i></i></div>
         <div class="archive-screen archive-screen--upper"><i></i></div>
         <div class="archive-screen archive-screen--middle"><i></i></div>
@@ -150,6 +156,22 @@ app.innerHTML = `
           <button type="submit"><span>记录</span><kbd>ENTER</kbd></button>
           <output class="archive-interview-error" aria-live="polite"></output>
         </form>
+        <section class="archive-life-events" hidden>
+          <p class="archive-life-events-kicker">再记一个时间点上的重大选择</p>
+          <ul class="archive-life-event-list"></ul>
+          <form class="archive-life-event-form">
+            <label>
+              <span class="sr-only">事件发生时的年龄</span>
+              <input class="archive-life-event-age" type="text" inputmode="numeric" maxlength="3" placeholder="几岁" aria-label="事件发生时的年龄" />
+            </label>
+            <label>
+              <span class="sr-only">那一年的重大选择</span>
+              <input class="archive-life-event-text" type="text" maxlength="80" placeholder="那一年发生了什么" aria-label="那一年的重大选择" />
+            </label>
+            <button type="submit">记下这一年</button>
+          </form>
+          <p class="archive-life-events-count"></p>
+        </section>
         <nav class="archive-interview-actions" aria-label="修改本次登记">
           <button class="archive-interview-previous" type="button"><span aria-hidden="true">←</span> 上一问</button>
           <button class="archive-interview-reset" type="button">重置到入口</button>
@@ -174,6 +196,7 @@ const startBacktest = document.querySelector<HTMLButtonElement>('.start-backtest
 const archiveSceneElement = document.querySelector<HTMLElement>('.archive-scene')!
 const archiveScene = createArchiveScene(archiveSceneElement)
 const gardenScene = createGardenScene(app)
+const interviewScene = createInterviewScene(app)
 const personalTag = createPersonalTag(app)
 gardenScene.element.querySelector('.garden-bottom-links')?.append(personalTag.element)
 const gardenWhiteout = document.createElement('div')
@@ -181,6 +204,20 @@ gardenWhiteout.className = 'garden-whiteout'
 gardenWhiteout.hidden = true
 gardenWhiteout.setAttribute('aria-hidden', 'true')
 app.append(gardenWhiteout)
+gardenScene.element.addEventListener('life-backtest:interview-open', event => {
+  const detail = (event as CustomEvent<Parameters<typeof interviewScene.show>[0]>).detail
+  interviewScene.show({
+    profile: detail.profile,
+    planted: detail.planted,
+    actualPlanted: detail.actualPlanted,
+    target: detail.target,
+    currentAge: detail.currentAge,
+  })
+})
+interviewScene.element.addEventListener('life-backtest:interview-done', () => {
+  interviewScene.hide()
+  gardenScene.openOutlook()
+})
 let gardenTransitionStarted = false
 let pageLeaving = false
 const displayCtx = canvas.getContext('2d', { alpha: false }) as CanvasRenderingContext2D
@@ -311,9 +348,9 @@ function enterArchive(entry: 'warp' | 'debug') {
     return
   }
 
-  // Keep the completed white point behind the archive's white entry layer
-  // until the corridor has fully materialised. This prevents a black frame
-  // between the space crossing and the chronology archive.
+  // Keep the completed destination frame behind the live archive scene until
+  // the corridor has fully materialised, so the expanding image hands off
+  // without exposing a black frame.
   archiveEntryTimer = window.setTimeout(() => {
     archiveEntryTimer = 0
     scene.style.display = 'none'
@@ -678,11 +715,18 @@ function drawMoonDissolve(x: number, y: number, size: number, progress: number) 
   displayCtx.restore()
 }
 
-function drawArrivalPoint(progress: number) {
-  if (progress <= 0) return
-  const centerX = STAGE_WIDTH / 2
-  const centerY = STAGE_HEIGHT * 0.459
+function drawArrivalPoint(
+  progress: number,
+  approachProgress: number,
+  approachStretch: number,
+  revealProgress: number,
+) {
+  const revealFade = 1 - smoothstep(0.01, 0.12, revealProgress)
+  if (progress <= 0 || revealFade <= 0) return
+  const centerX = lerp(WARP_PARTICLE_FAR.x, WARP_DESTINATION.x, approachProgress)
+  const centerY = lerp(WARP_PARTICLE_FAR.y, WARP_DESTINATION.y, approachProgress)
   const stepped = Math.round(progress * 10) / 10
+  const branchFade = (1 - smoothstep(0.45, 1, progress)) * (1 - smoothstep(0, 0.08, revealProgress))
 
   displayCtx.save()
   displayCtx.globalCompositeOperation = 'screen'
@@ -694,20 +738,41 @@ function drawArrivalPoint(progress: number) {
     for (let index = 0; index < segments; index += 1) {
       const t = index / (segments - 1)
       const converge = t * t
-      const x = lerp(centerX + offset, centerX, converge)
-      const y = lerp(centerY + (branch - 1) * 62, centerY, t)
-      displayCtx.globalAlpha = stepped * (0.08 + t * 0.28)
+      const x = lerp(WARP_PARTICLE_FAR.x + offset, WARP_PARTICLE_FAR.x, converge)
+      const y = lerp(WARP_PARTICLE_FAR.y + (branch - 1) * 62, WARP_PARTICLE_FAR.y, t)
+      displayCtx.globalAlpha = stepped * branchFade * (0.08 + t * 0.28)
       displayCtx.fillStyle = branch === 1 ? '#a9a9a5' : '#595957'
       displayCtx.fillRect(Math.round(x / 2) * 2, Math.round(y / 2) * 2, 2, 2)
     }
   })
 
-  displayCtx.globalAlpha = stepped
+  if (approachStretch > 0.01) {
+    const travelX = WARP_DESTINATION.x - WARP_PARTICLE_FAR.x
+    const travelY = WARP_DESTINATION.y - WARP_PARTICLE_FAR.y
+    const travelLength = Math.hypot(travelX, travelY)
+    const directionX = travelX / travelLength
+    const directionY = travelY / travelLength
+    const trailLength = 10 + approachStretch * 66
+    const segments = 14
+
+    for (let index = segments; index >= 1; index -= 1) {
+      const distanceProgress = index / segments
+      const distance = trailLength * distanceProgress
+      const echoX = Math.round((centerX - directionX * distance) / 2) * 2
+      const echoY = Math.round((centerY - directionY * distance) / 2) * 2
+      const echoSize = Math.max(2, Math.round((6 - distanceProgress * 4) / 2) * 2)
+      displayCtx.globalAlpha = stepped * revealFade * approachStretch * (1 - distanceProgress) * 0.7
+      displayCtx.fillStyle = index < 6 ? '#deded9' : '#858582'
+      displayCtx.fillRect(echoX - echoSize / 2, echoY - echoSize / 2, echoSize, echoSize)
+    }
+  }
+
+  displayCtx.globalAlpha = stepped * revealFade
   displayCtx.fillStyle = '#ecece8'
-  const pointSize = stepped > 0.72 ? 6 : 4
+  const pointSize = Math.round(lerp(stepped > 0.72 ? 6 : 4, 18, approachProgress) / 2) * 2
   displayCtx.fillRect(
-    Math.round(centerX - pointSize / 2),
-    Math.round(centerY - pointSize / 2),
+    Math.round((centerX - pointSize / 2) / 2) * 2,
+    Math.round((centerY - pointSize / 2) / 2) * 2,
     pointSize,
     pointSize,
   )
@@ -856,7 +921,8 @@ function composeScene(timeSeconds: number) {
   const moonOverlayAlpha = smoothstep(0.32, 0.8, displayProgress) * (1 - smoothstep(0.76, 1, crossing))
   const galaxyReveal = smoothstep(0.03, 0.94, dragDisplay)
   const galaxyWarpScale = activeWarp ? 1 + activeWarp.travelProgress * 2.25 : 1
-  const galaxyAlpha = galaxyReveal * (1 - crossing * 0.9)
+  const arrivalFade = 1 - (activeWarp?.arrivalProgress ?? 0)
+  const galaxyAlpha = galaxyReveal * (1 - crossing * 0.9) * arrivalFade
 
   displayCtx.globalAlpha = 1
   displayCtx.globalCompositeOperation = 'source-over'
@@ -901,7 +967,7 @@ function composeScene(timeSeconds: number) {
     const twinkle = 0.94 + Math.sin(Math.floor(timeSeconds * PIXEL_FPS) * 0.21) * 0.06
     displayCtx.save()
     displayCtx.globalCompositeOperation = 'screen'
-    displayCtx.globalAlpha = starProgress * twinkle * (1 - crossing * 0.92)
+    displayCtx.globalAlpha = starProgress * twinkle * (1 - crossing * 0.92) * arrivalFade
     displayCtx.translate(approachMoonX, approachMoonY)
     displayCtx.scale(starScale, starScale)
     displayCtx.translate(-SPACE_MOON.x, -SPACE_MOON.y)
@@ -952,13 +1018,20 @@ function composeScene(timeSeconds: number) {
 
   if (activeWarp) {
     warpField.draw(displayCtx, activeWarp, 'front')
-    drawArrivalPoint(activeWarp.arrivalProgress)
+    drawArrivalPoint(
+      activeWarp.particleProgress,
+      activeWarp.approachProgress,
+      activeWarp.approachStretch,
+      activeWarp.revealProgress,
+    )
   }
 
   scene.style.setProperty('--rewind-progress', displayProgress.toFixed(4))
   scene.style.setProperty('--moon-drag-progress', dragDisplay.toFixed(4))
   scene.style.setProperty('--warp-progress', (activeWarp?.travelProgress ?? 0).toFixed(4))
   scene.style.setProperty('--arrival-progress', (activeWarp?.arrivalProgress ?? 0).toFixed(4))
+  const revealStep = Math.round((activeWarp?.revealProgress ?? 0) * 28) / 28
+  scene.style.setProperty('--destination-progress', revealStep.toFixed(4))
   scene.classList.toggle('has-progress', targetProgress > 0.006 || displayProgress > 0.006)
   scene.dataset.transition = activeWarp
     ? `warp-${activeWarp.phase}`
@@ -1106,6 +1179,15 @@ if (requestedScene.get('debug') === 'garden') {
     const profile = debugGardenProfile(requestedScene)
     writeArchiveProfile(profile)
     showGarden(profile, 'begin')
+  }
+} else if (requestedScene.get('scene') === 'interview') {
+  const saved = peekGardenSave()
+  showGarden(saved?.profile ?? readArchiveProfile())
+  if (saved) {
+    const url = new URL(window.location.href)
+    url.searchParams.set('scene', 'interview')
+    history.replaceState(null, '', url)
+    void interviewScene.show({ profile: saved.profile, planted: interviewTrail(saved), actualPlanted: linePlanted(saved), currentAge: saved.currentAge, target: saved.target })
   }
 } else if (requestedScene.get('scene') === 'garden') showGarden(readArchiveProfile())
 else if (requestedScene.get('debug') === 'archive' || requestedScene.get('scene') === 'archive') enterArchive('debug')

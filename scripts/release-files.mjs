@@ -3,12 +3,13 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
-// Intentionally omit work outputs, screenshots, browser state, dependencies and builds.
+// Omit dependencies, browser state and transient test output. Keep the verified
+// production build so an account handoff can inspect both source and deliverable.
 export const releaseEntries = [
   '.github', '.gitignore', '.gitattributes', '.codex', 'AGENTS.md', 'README.md',
   'index.html', 'package.json', 'pnpm-lock.yaml', 'tsconfig.json',
   'playwright.config.ts', 'vitest.config.ts', 'vite.config.ts',
-  'src', 'public', 'docs', 'scripts', 'server', 'tests', 'asset-sources',
+  'src', 'public', 'dist', 'docs', 'scripts', 'server', 'tests', 'asset-sources',
 ]
 export async function releaseFiles() {
   const files = []

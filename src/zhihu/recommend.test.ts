@@ -1,16 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+  candidateQueries,
   companionQueries,
   discoverChoices,
   discoverTitleForks,
   explainAuthored,
   explainMatch,
+  foresightQueries,
+  journeyBoost,
   journeyContext,
   journeyKeywords,
   mergeDiscoveredChoices,
   nodeDiscoveryQueries,
   npcFromSearch,
   rankSearchItems,
+  selectCompanionPortraits,
+  authorAvatar,
 } from './recommend'
 import { eraChoice, eraNodeForAge } from '../garden/gardenContent'
 
@@ -40,7 +45,7 @@ describe('journey-aware Zhihu queries', () => {
       selectedAge: 18,
       currentAge: 24,
       target: { raw: '2020年', kind: 'year', age: 18, year: 2020 },
-      profile: { status: '上班', family: '与父母同住', rewind: '2020年' },
+      profile: { education: '本科', health: '良好', lifeEvent: '2020年换了工作', gender: '女' },
       planted: [{ age: 15, choiceId: 'senior' }],
     })
     const queries = nodeDiscoveryQueries(ctx, '高考后的去向')
@@ -48,7 +53,29 @@ describe('journey-aware Zhihu queries', () => {
     expect(queries.some(item => item.includes('2020年'))).toBe(true)
     expect(queries.some(item => item.includes('读普通高中') || item.includes('之后'))).toBe(true)
     expect(journeyKeywords(ctx)).toContain('读普通高中')
-    expect(journeyKeywords(ctx)).toContain('上班')
+    expect(journeyKeywords(ctx)).toContain('2020年换了工作')
+    expect(queries.join(' ')).toContain('本科')
+    expect(queries.join(' ')).toContain('良好')
+    expect(queries.join(' ')).toContain('女')
+    expect(queries.join(' ')).not.toMatch(/女\s*考研/)
+    expect(journeyKeywords(ctx)).toContain('女')
+    expect(journeyKeywords(ctx)).toContain('良好')
+    const childhood = nodeDiscoveryQueries({ ...ctx, selectedAge: 8 }, '童年').join(' ')
+    expect(childhood).not.toContain('本科')
+  })
+
+  it('builds candidate search queries from gender, health, education and the life event', () => {
+    const ctx = journeyContext({
+      selectedAge: 18,
+      currentAge: 24,
+      profile: { education: '本科', health: '良好', lifeEvent: '18岁高考选了省内', gender: '女' },
+      planted: [{ age: 15, choiceId: 'senior' }],
+    })
+    const queries = candidateQueries(ctx)
+    expect(queries.some(item => item.includes('18岁高考'))).toBe(true)
+    expect(queries.join(' ')).toContain('女')
+    expect(queries.join(' ')).toContain('良好')
+    expect(queries.join(' ')).toContain('本科')
   })
 
   it('does not invent a birth year just because current age is known', () => {
@@ -62,6 +89,47 @@ describe('journey-aware Zhihu queries', () => {
     expect(nodeDiscoveryQueries(ctx, '高考后的去向').join(' ')).not.toMatch(/20\d{2}年/)
   })
 
+  it('builds foresight queries from profile, planted history and interview slots', () => {
+    const ctx = journeyContext({
+      selectedAge: 23,
+      currentAge: 22,
+      profile: { education: '本科', health: '良好', lifeEvent: '20岁实习', gender: '女' },
+      planted: [{ age: 20, choiceId: 'intern' }, { age: 22, choiceId: 'major' }],
+      interview: {
+        nodes: [{
+          age: 20,
+          title: '提前实习',
+          slots: {
+            choice: '先去实习碰世界',
+            motive: '想离家近一点也想让家里少操心',
+            constraint: '家里存款不够再读一年',
+            alternative: '再搏考研',
+            agency: '条件妥协',
+          },
+        }],
+      },
+    })
+    const queries = foresightQueries(ctx, 23)
+    expect(queries.join(' ')).toContain('23岁')
+    expect(queries.join(' ')).toContain('女')
+    expect(queries.join(' ')).toContain('本科')
+    expect(queries.join(' ')).toContain('良好')
+    expect(queries.join(' ')).toContain('20岁实习')
+    expect(queries.some(item => item.includes('实习') || item.includes('专业'))).toBe(true)
+    expect(queries.join(' ')).toMatch(/条件妥协|再搏考研|少操心/)
+    expect(journeyKeywords(ctx)).toContain('条件妥协')
+    expect(journeyKeywords(ctx)).toContain('再搏考研')
+    expect(journeyBoost({
+      Title: '实习之后我没有再考研',
+      ContentText: '家里存款不够再读一年。我想离家近一点，后来条件妥协，先把实习坐实。',
+      AuthorName: '相近的路',
+    }, ctx, '留下一线')).toBeGreaterThan(journeyBoost({
+      Title: '今日热榜闲聊',
+      ContentText: '随便聊聊天气。',
+      AuthorName: '热帖',
+    }, ctx, '留下一线'))
+  })
+
   it('builds companion queries that keep the last planted fork', () => {
     const ctx = journeyContext({
       selectedAge: 25,
@@ -73,6 +141,33 @@ describe('journey-aware Zhihu queries', () => {
     expect(same.some(item => item.includes('实习'))).toBe(true)
     const cross = companionQueries(ctx, '创业 / 自己干', 'cross-era')
     expect(cross[0]).toContain('后来怎样')
+  })
+
+  it('puts interview short words into companion queries, not whole sentences', () => {
+    const ctx = journeyContext({
+      selectedAge: 22,
+      currentAge: 22,
+      planted: [{ age: 20, choiceId: 'intern' }],
+      interview: {
+        nodes: [{
+          age: 20,
+          title: '提前实习',
+          slots: {
+            choice: '先去实习碰世界',
+            motive: '想离家近一点也想让家里少操心',
+            constraint: '家里存款不够再读一年',
+            alternative: '再搏考研',
+            agency: '条件妥协',
+          },
+        }],
+      },
+    })
+    const blob = companionQueries(ctx, '留下一线', 'same-era').join(' ')
+    expect(blob).toMatch(/离家近/)
+    expect(blob).toMatch(/家里/)
+    expect(blob).toMatch(/考研/)
+    expect(blob).not.toContain('想离家近一点也想让家里少操心')
+    expect(blob).not.toContain('条件妥协')
   })
 })
 
@@ -112,6 +207,21 @@ describe('choice discovery and specific match reasons', () => {
     expect(nodeDiscoveryQueries(journeyContext({ selectedAge: 5, currentAge: 24, planted: [] }), '第一次离开家').some(item => item.includes('武校'))).toBe(true)
   })
 
+  it('does not fly 当兵 or 继续读书 onto the age-0 node', () => {
+    const authored = eraNodeForAge(0).choices
+    const found = discoverChoices([{
+      Title: '18岁我该去当兵还是继续读书？我选了入伍',
+      ContentText: '家里供不起大学。当兵第一年最难开口的是想家。',
+      AuthorName: '军营的人',
+    }], journeyContext({
+      selectedAge: 0,
+      currentAge: 24,
+      planted: [],
+    }), authored)
+    expect(found.map(item => item.label).join('')).not.toMatch(/当兵|入伍|继续读书/)
+    expect(found.map(item => item.patternId)).not.toContain('army')
+  })
+
   it('can surface 早产 at age 0 without dropping the six authored starts', () => {
     const authored = eraNodeForAge(0).choices
     expect(authored).toHaveLength(6)
@@ -129,12 +239,31 @@ describe('choice discovery and specific match reasons', () => {
     expect(mergeDiscoveredChoices(authored, []).length).toBe(6)
   })
 
+  it('does not fly a second flower whose label already sits on the authored node', () => {
+    const authored = eraNodeForAge(5).choices
+    const found = discoverChoices([{
+      Title: '5岁我选了上幼儿园，后来才懂排队',
+      ContentText: '上幼儿园比识字更早。家里还问过要不要去艺校。',
+      AuthorName: '排队的人',
+    }], journeyContext({ selectedAge: 5, currentAge: 24, planted: [] }), authored)
+    expect(found.map(item => item.label).join(' ')).not.toMatch(/幼儿园|艺校/)
+    const merged = mergeDiscoveredChoices(authored, [{
+      id: 'live-幼儿园',
+      label: '上幼儿园',
+      peer: 0,
+      reason: '搜索里又出现了上幼儿园。',
+      flowerKind: 3,
+      npc: authored[0].npc,
+    }])
+    expect(merged.filter(item => item.label.includes('上幼儿园'))).toHaveLength(1)
+  })
+
   it('explains a person with planted history, status and a real quote', () => {
     const ctx = journeyContext({
       selectedAge: 18,
       currentAge: 24,
       target: { raw: '2020年', kind: 'year', age: 18, year: 2020 },
-      profile: { status: '上班' },
+      profile: { education: '本科', lifeEvent: '2020年换了工作' },
       planted: [{ age: 15, choiceId: 'senior' }],
     })
     const explain = explainMatch(armyPost, ctx, '去当兵 / 入伍')
@@ -148,6 +277,25 @@ describe('choice discovery and specific match reasons', () => {
     expect(npc.avatar).toContain('zhimg.com')
   })
 
+  it('reads a nested author avatar when the search item does not flatten AuthorAvatar', () => {
+    expect(authorAvatar({
+      Author: { Name: '新兵连的灯', Avatar: 'https://pic1.zhimg.com/v2-abc_l.jpg' },
+    })).toContain('zhimg.com')
+    expect(authorAvatar({ AuthorAvatar: 'https://picx.zhimg.com/50/v2-84ce3330420f9332a1d69d4cd1f10c2f_l.jpg' })).toContain('zhimg.com')
+    expect(authorAvatar({ AuthorName: '没有头像的人' })).toBe('')
+  })
+
+  it('keeps outlook search hits when no single choice label is supplied', () => {
+    const ctx = journeyContext({
+      selectedAge: 24,
+      currentAge: 24,
+      planted: [{ age: 18, choiceId: 'college', label: '去上大学' }],
+    })
+    const ranked = rankSearchItems([armyPost], ctx, '', 4)
+    expect(ranked[0]?.AuthorName).toBe('新兵连的灯')
+    expect(authorAvatar(ranked[0]!)).toContain('zhimg.com')
+  })
+
   it('ranks the post that overlaps the planted path above a generic one', () => {
     const ctx = journeyContext({
       selectedAge: 18,
@@ -158,15 +306,55 @@ describe('choice discovery and specific match reasons', () => {
     expect(ranked[0].AuthorName).toBe('新兵连的灯')
   })
 
+  it('drops a hot post that never mentions the planted choice', () => {
+    const hot = {
+      Title: '今日热榜闲聊',
+      ContentText: '随便聊聊天气和热搜。',
+      AuthorName: '热帖',
+      VoteUpCount: 9999,
+      RankingScore: 5,
+    }
+    const hit = {
+      Title: '考研二战那年我住在学校旁边',
+      ContentText: '再考一次。家里不反对考研，只是怕我再耗一年。',
+      AuthorName: '二战的人',
+      VoteUpCount: 3,
+      RankingScore: 0.1,
+    }
+    const ctx = journeyContext({
+      selectedAge: 22,
+      currentAge: 22,
+      planted: [{ age: 22, choiceId: 'major' }],
+    })
+    const ranked = rankSearchItems([hot, hit], ctx, '再搏一次（考研 / 再考 / 再试）', 2)
+    expect(ranked.map(item => item.AuthorName)).toEqual(['二战的人'])
+  })
+
+  it('does not substitute an unrelated hit when the choice label matches nothing', () => {
+    const hot = {
+      Title: '今日热榜闲聊',
+      ContentText: '随便聊聊天气和热搜。',
+      AuthorName: '热帖',
+      VoteUpCount: 9999,
+      RankingScore: 5,
+    }
+    const ctx = journeyContext({
+      selectedAge: 22,
+      currentAge: 22,
+      planted: [{ age: 22, choiceId: 'major' }],
+    })
+    expect(rankSearchItems([hot], ctx, '再搏一次（考研 / 再考 / 再试）', 2)).toEqual([])
+  })
+
   it('still names a concrete overlap when Zhihu is offline', () => {
     const choice = eraNodeForAge(25).choices.find(item => item.id === 'job')!
     const explain = explainAuthored(choice, journeyContext({
       selectedAge: 25,
       currentAge: 25,
-      profile: { status: '上班' },
+      profile: { education: '本科', lifeEvent: '上班以后才懂' },
       planted: [{ age: 20, choiceId: 'intern' }, { age: 25, choiceId: 'job' }],
     }))
-    expect(explain.story).toContain('上班')
+    expect(explain.story).toContain('上班以后才懂')
     expect(explain.story).toMatch(/选了/)
     expect(explain.headline + explain.story).not.toMatch(/检索|热帖|相似度/)
     expect(explain.quote.length).toBeGreaterThan(4)
@@ -182,7 +370,7 @@ describe('choice discovery and specific match reasons', () => {
     }
     const path = {
       Title: '实习转正以后我还是去上了班',
-      ContentText: '读普通高中之后去上大学，二十岁提前实习，后来先去工作，不再把一年押进去。',
+      ContentText: '读普通高中之后去上大学，二十岁提前实习，后来先去工作，转行，重新开始，不再把一年押进去。',
       AuthorName: '路径重合',
       VoteUpCount: 3,
       RankingScore: 0.2,
@@ -214,7 +402,17 @@ describe('choice discovery and specific match reasons', () => {
       currentAge: 52,
       planted: [{ age: 40, choiceId: 'hold' }],
     }), authored)
-    expect(found.map(item => item.patternId)).toContain('early-retire')
+    expect(found.map(item => item.patternId)).not.toContain('early-retire')
+    const midlife = discoverChoices([{
+      Title: '48岁被内退后我去学了烘焙',
+      ContentText: '提前退休不是享福。内退以后才发现日子要自己重新搭。',
+      AuthorName: '空下来的早晨',
+    }], journeyContext({
+      selectedAge: 45,
+      currentAge: 52,
+      planted: [{ age: 40, choiceId: 'hold' }],
+    }), eraNodeForAge(45).choices)
+    expect(midlife.map(item => item.patternId)).toContain('early-retire')
     const queries = nodeDiscoveryQueries(journeyContext({
       selectedAge: 50,
       currentAge: 52,
@@ -233,5 +431,45 @@ describe('choice discovery and specific match reasons', () => {
     expect(journeyKeywords(ctx)).toContain('去当兵后来又复员')
     const titles = discoverTitleForks([armyPost], eraNodeForAge(18).choices)
     expect(titles.some(item => item.label.includes('当兵') || item.label.includes('入伍'))).toBe(true)
+  })
+
+  it('keeps the second same-era companion from retelling the same landing story', () => {
+    const similar = {
+      Title: '考研上岸以后我去了体制内',
+      ContentText: '二战考研，终于上岸。后来进了事业单位。',
+      AuthorName: '上岸甲',
+      Url: 'https://www.zhihu.com/answer/1',
+      RankingScore: 1.4,
+    }
+    const clone = {
+      Title: '我也考研上岸进了体制内',
+      ContentText: '考研上岸以后进了事业单位，和甲几乎同一条路。',
+      AuthorName: '上岸乙',
+      Url: 'https://www.zhihu.com/answer/2',
+      RankingScore: 1.2,
+    }
+    const otherCost = {
+      Title: '考研失败后我先去上班了',
+      ContentText: '没有上岸。家里等不起，我把简历投出去，先把房租付上。',
+      AuthorName: '先付房租',
+      Url: 'https://www.zhihu.com/answer/3',
+      RankingScore: 0.4,
+    }
+    const later = {
+      Title: '十年后回头看，考研值不值',
+      ContentText: '后来怎样呢。值不值要看你拿什么换。我现在不考了。',
+      AuthorName: '十年后的人',
+      Url: 'https://www.zhihu.com/answer/4',
+      RankingScore: 0.5,
+    }
+    const ctx = journeyContext({
+      selectedAge: 22,
+      currentAge: 22,
+      planted: [{ age: 22, choiceId: 'major' }],
+    })
+    const picked = selectCompanionPortraits([similar, clone, otherCost], [later, similar], ctx, '再搏一次（考研 / 再考 / 再试）')
+    expect(picked.similar?.AuthorName).toBe('上岸甲')
+    expect(picked.peer?.AuthorName).toBe('先付房租')
+    expect(picked.far?.AuthorName).toBe('十年后的人')
   })
 })

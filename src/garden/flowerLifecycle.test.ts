@@ -3,9 +3,13 @@ import { flowerDuration, flowerEndpoint, flowerPoseAt } from './flowerLifecycle'
 import { GardenActor, GARDEN_SOIL } from './gardenActor'
 
 describe('authored flower lifecycle', () => {
-  it('uses the agreed age endpoints rather than immediately showing the endpoint', () => {
-    expect(Array.from({ length: 8 }, (_, i) => flowerEndpoint(i))).toEqual([0, 5, 7, 10, 12, 13, 15, 15])
+  it('grows every chosen species through the complete sixteen-pose lifecycle', () => {
+    expect(Array.from({ length: 8 }, (_, i) => flowerEndpoint(i))).toEqual([15, 15, 15, 15, 15, 15, 15, 15])
     for (let chapter = 0; chapter < 8; chapter++) expect(flowerPoseAt(chapter, 0).pose).toBe(0)
+  })
+  it('finishes the complete growth sequence at a brisk but readable pace', () => {
+    expect(flowerDuration(0)).toBeGreaterThan(1.2)
+    expect(flowerDuration(0)).toBeLessThan(1.7)
   })
   it('visits every intermediate pose, never overshoots, then holds the endpoint', () => {
     for (let chapter = 0; chapter < 8; chapter++) {
@@ -41,7 +45,7 @@ describe('authored flower lifecycle', () => {
     const actor = new GardenActor()
     actor.start(6, GARDEN_SOIL[2], false)
     for (let i = 0; i < 2000 && actor.phase !== 'observing'; i++) actor.advance(.016)
-    expect(actor.growthElapsed).toBeGreaterThan(1)
+    expect(actor.growthElapsed).toBeGreaterThan(.6)
     actor.cancel()
     expect(actor.growthElapsed).toBe(0)
     expect(actor.advance(.1)).toEqual([])

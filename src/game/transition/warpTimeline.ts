@@ -1,4 +1,4 @@
-export type WarpPhase = 'returning' | 'accelerating' | 'splitting' | 'crossing' | 'arrived'
+export type WarpPhase = 'returning' | 'accelerating' | 'splitting' | 'crossing' | 'focusing' | 'approaching' | 'revealing' | 'arrived'
 
 export interface WarpSample {
   elapsed: number
@@ -9,10 +9,14 @@ export interface WarpSample {
   splitPulse: number
   crossingProgress: number
   arrivalProgress: number
+  particleProgress: number
+  approachProgress: number
+  approachStretch: number
+  revealProgress: number
   complete: boolean
 }
 
-export const WARP_DURATION_SECONDS = 6.8
+export const WARP_DURATION_SECONDS = 8.4
 
 const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value))
 
@@ -34,7 +38,11 @@ export function sampleWarpTimeline(elapsedSeconds: number): WarpSample {
   const velocity = pulse(0.92, 2.35, 4.65, 5.88, elapsed)
   const splitPulse = pulse(2.72, 3.18, 4.18, 4.76, elapsed)
   const crossingProgress = smoothstep(4.12, 5.82, elapsed)
-  const arrivalProgress = smoothstep(5.35, WARP_DURATION_SECONDS, elapsed)
+  const arrivalProgress = smoothstep(5.35, 5.95, elapsed)
+  const particleProgress = smoothstep(5.25, 5.75, elapsed)
+  const approachProgress = Math.pow(smoothstep(5.95, 6.62, elapsed), 2.4)
+  const approachStretch = pulse(5.98, 6.22, 6.42, 6.66, elapsed)
+  const revealProgress = Math.pow(smoothstep(6.58, 8.05, elapsed), 1.22)
 
   const phase: WarpPhase = elapsed < 1.35
     ? 'returning'
@@ -44,7 +52,13 @@ export function sampleWarpTimeline(elapsedSeconds: number): WarpSample {
         ? 'splitting'
         : elapsed < 5.82
           ? 'crossing'
-          : 'arrived'
+          : elapsed < 5.95
+            ? 'focusing'
+            : elapsed < 6.66
+              ? 'approaching'
+              : elapsed < 8.05
+                ? 'revealing'
+                : 'arrived'
 
   return {
     elapsed,
@@ -55,6 +69,10 @@ export function sampleWarpTimeline(elapsedSeconds: number): WarpSample {
     splitPulse,
     crossingProgress,
     arrivalProgress,
+    particleProgress,
+    approachProgress,
+    approachStretch,
+    revealProgress,
     complete: elapsed >= WARP_DURATION_SECONDS,
   }
 }

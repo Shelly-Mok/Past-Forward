@@ -9,6 +9,11 @@ import {
   nextArchiveQuestion,
   normalizeArchiveAnswer,
   previousArchiveQuestion,
+  addLifeEvent,
+  extraLifeEventError,
+  LIFE_EVENT_LIMIT,
+  readLifeEventEntries,
+  readLifeEvents,
   type ArchiveProfile,
   type ArchiveQuestion,
 } from './archiveInterview'
@@ -556,6 +561,12 @@ export function createArchiveScene(scene: HTMLElement) {
   const interviewError = interview.querySelector<HTMLOutputElement>('.archive-interview-error')!
   const previousQuestionButton = interview.querySelector<HTMLButtonElement>('.archive-interview-previous')!
   const resetInterviewButton = interview.querySelector<HTMLButtonElement>('.archive-interview-reset')!
+  const lifeEventsBox = interview.querySelector<HTMLElement>('.archive-life-events')!
+  const lifeEventList = interview.querySelector<HTMLElement>('.archive-life-event-list')!
+  const lifeEventForm = interview.querySelector<HTMLFormElement>('.archive-life-event-form')!
+  const lifeEventAge = interview.querySelector<HTMLInputElement>('.archive-life-event-age')!
+  const lifeEventText = interview.querySelector<HTMLInputElement>('.archive-life-event-text')!
+  const lifeEventCount = interview.querySelector<HTMLElement>('.archive-life-events-count')!
   const auditSpeaker = scene.querySelector<HTMLElement>('.archive-audit-speaker')!
   const auditMessage = scene.querySelector<HTMLElement>('.archive-audit-message')!
   const auditNote = scene.querySelector<HTMLElement>('.archive-audit-note')!
@@ -735,9 +746,43 @@ export function createArchiveScene(scene: HTMLElement) {
       interviewOptions.append(button)
     })
     interviewOptions.hidden = !question.options?.length
+    renderLifeEvents()
     syncCheckpointLights()
     audio.question(questionIndex)
     requestAnimationFrame(() => interviewInput.focus({ preventScroll: true }))
+  }
+
+  function renderLifeEvents() {
+    const asking = activeQuestion?.id === 'lifeEvent'
+    lifeEventsBox.hidden = !asking
+    if (!asking) return
+    const extras = readLifeEventEntries(profile.lifeEvents)
+    const counted = readLifeEvents({
+      lifeEvent: interviewInput.value.trim() || profile.lifeEvent,
+      lifeEvents: extras,
+    }).length
+    lifeEventList.replaceChildren()
+    for (const item of extras) {
+      const row = document.createElement('li')
+      const copy = document.createElement('span')
+      copy.textContent = `${item.age}岁 · ${item.text}`
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.textContent = '删去'
+      remove.setAttribute('aria-label', `删去${item.age}岁的事件`)
+      remove.addEventListener('click', () => {
+        profile.lifeEvents = extras.filter(entry => entry.age !== item.age)
+        if (!profile.lifeEvents.length) delete profile.lifeEvents
+        saveProfile()
+        renderLifeEvents()
+      })
+      row.append(copy, remove)
+      lifeEventList.append(row)
+    }
+    lifeEventForm.hidden = counted >= LIFE_EVENT_LIMIT
+    lifeEventCount.textContent = counted >= LIFE_EVENT_LIMIT
+      ? `已经记下 ${LIFE_EVENT_LIMIT} 件，不能再加了。`
+      : `已记 ${counted} / ${LIFE_EVENT_LIMIT} 件。还可以再记时间点。`
   }
 
   function closeQuestion() {
@@ -747,6 +792,7 @@ export function createArchiveScene(scene: HTMLElement) {
     delete scene.dataset.question
     interview.setAttribute('aria-hidden', 'true')
     interview.classList.remove('is-confirmed', 'has-error')
+    lifeEventsBox.hidden = true
     syncCheckpointLights()
     readyAt = performance.now() + 180
 
@@ -761,7 +807,7 @@ export function createArchiveScene(scene: HTMLElement) {
       scene.dispatchEvent(new CustomEvent('life-backtest:archive-answer', {
         detail: { question: completedQuestion.id, profile: { ...profile } },
       }))
-      if (completedQuestion.id === 'rewind') {
+      if (completedQuestion.id === 'lifeEvent') {
         scene.dispatchEvent(new CustomEvent('life-backtest:archive-profile-ready', {
           detail: { profile: { ...profile } },
         }))
@@ -1100,6 +1146,31 @@ export function createArchiveScene(scene: HTMLElement) {
   interviewForm.addEventListener('submit', (event) => {
     event.preventDefault()
     submitQuestion()
+  })
+  interviewInput.addEventListener('input', () => {
+    if (activeQuestion?.id === 'lifeEvent') renderLifeEvents()
+  })
+  lifeEventForm.addEventListener('submit', event => {
+    event.preventDefault()
+    const currentAge = Number.parseInt(profile.age || '', 10)
+    const error = extraLifeEventError(lifeEventAge.value, lifeEventText.value, Number.isInteger(currentAge) ? currentAge : null)
+    if (error) {
+      interviewError.textContent = error
+      interview.classList.add('has-error')
+      lifeEventAge.focus({ preventScroll: true })
+      return
+    }
+    const age = Number.parseInt(lifeEventAge.value.trim(), 10)
+    profile.lifeEvents = addLifeEvent(readLifeEventEntries(profile.lifeEvents), {
+      age,
+      text: lifeEventText.value.trim().slice(0, 80),
+    })
+    lifeEventAge.value = ''
+    lifeEventText.value = ''
+    interviewError.textContent = ''
+    interview.classList.remove('has-error')
+    saveProfile()
+    renderLifeEvents()
   })
   previousQuestionButton.addEventListener('click', returnToPreviousQuestion)
   resetInterviewButton.addEventListener('click', resetInterview)

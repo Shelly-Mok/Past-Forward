@@ -19,11 +19,11 @@
 定义位置：`src/archive/archiveInterview.ts`。
 
 ```ts
-type ArchiveQuestionId = 'age' | 'gender' | 'family' | 'status' | 'rewind'
+type ArchiveQuestionId = 'age' | 'gender' | 'education' | 'health' | 'lifeEvent'
 type ArchiveProfile = Partial<Record<ArchiveQuestionId, string>>
 ```
 
-五项都是原始字符串，不是后端已经规整好的画像。`age` 是现实年龄，`gender`允许不透露；`family`、`status`是当前家庭／工作学习上下文；`rewind`是用户想回去的年龄、年份或阶段原话。
+五项都是原始字符串，不是后端已经规整好的画像。`age` 是现实年龄，`gender` 只能是男或女；`education`、`health` 是当前学历与身体状况；`lifeEvent` 是重大人生事件原话，回溯目标从这里解析。
 
 ### 花园状态
 
@@ -80,6 +80,8 @@ type GardenState = {
 | `life-backtest:archive-door-arrived` | `.archive-scene`元素 | 玩家主动走到门口；`{ profile }`；main.ts已监听并切第三幕 |
 | `life-backtest:garden-node-request` | `.garden-scene`元素，**向外冒泡** | 打开时间档案；下述上下文快照 |
 | `life-backtest:garden-rift-open` | `.garden-scene`元素，**向外冒泡** | 进入裂隙四页之一；`{ kind, ...GardenNodeContext }`。`kind` 为 `backtrack` / `forward` / `foresight` / `end`。帖子会先渲染本地骨架，再尝试水合知乎原文 |
+| `life-backtest:interview-open` | `.garden-scene`元素，**向外冒泡** | 三岔口点「进入回溯」时打开第四幕；detail 含 profile / planted / currentAge |
+| `life-backtest:interview-back` | `.interview-scene`元素，**向外冒泡** | 从第四幕返回三岔口 |
 | `life-backtest:garden-rift-choice` | `.garden-scene`元素，**向外冒泡** | 回溯页点开一条未选择之路；`{ kind: 'backtrack', age, choiceId, source: 'zhihu' \| 'demo', ...GardenNodeContext }`。本地骨架由 `choicePostFor()` 装配，成功检索后回填 `.garden-rift-post` |
 
 注意：档案局事件默认不冒泡，不能只在document监听就期待收到；花园节点事件明确设置了bubbles。不要重复监听到门事件再执行第二次切幕。
@@ -107,7 +109,7 @@ type GardenNodeContext = {
 - `garden-rift-open` 在吸入转场结束后、裂隙页可见时触发。从裂隙内切到另一页（例如前进→前瞻）也会再发一次，`kind` 为新页。detail 是 structuredClone，修改不会反写前端。
 - “同代·相近选择”等按钮目前只打开待接入说明，尚未发出带signalType的服务请求。要实现人物匹配，需要队友新增这一层。
 - 裂隙帖子通过本仓库 `server/zhihu-bridge.mjs` 调用官方 CLI 的知乎搜索。接口失败时回退本地演示文案，并保留「演示内容 · 不是真实匹配结果」。知乎原文只使用公开搜索字段，不把生成头像或台词冒充真实用户。
-- 已实现：`GET /api/health`、`GET /api/zhihu/access`、`POST /api/life/match`、`GET /api/life/author`。本地预览打开 `/?zhihu=access` 可查看当前 Access Secret 能读到的创作、关注、收藏和搜索探针。
+- 已实现：`GET /api/health`、`GET /api/zhihu/access`、`POST /api/life/match`、`GET /api/life/author`、`POST /api/life/candidates`、`POST /api/life/persona`、`POST /api/life/dialogue`、`POST /api/life/report`。本地预览打开 `/?zhihu=access` 可查看当前 Access Secret 能读到的创作、关注、收藏和搜索探针。模型密钥只放本机 `.env`。
 - 「我的」数据属于 Access Secret 所属账号，不是玩家 OAuth 登录账号。第一版不调用直答，避免消耗 100 次/天额度。
 - CLI 与官方 Skill 已收进本仓库：`.codex/skills/zhihu`、`scripts/vendor/zhihu-cli-skill.zip`。`server/zhihu-bridge.mjs` 只从本项目 Skill / 本机 CLI 解析二进制，不再读取外层 `zhihu-demo`。配置步骤见 [知乎接口配置](ZHIHU_SETUP.md)。
 

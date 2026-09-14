@@ -5,6 +5,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { officialSkillDir } from './install-zhihu-skill.mjs'
+import { loadProjectEnv } from '../server/load-env.mjs'
+
+loadProjectEnv()
 
 const execFileAsync = promisify(execFile)
 export const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
@@ -36,10 +39,14 @@ export function parseJsonLine(text) {
 export async function runSkillStatus() {
   const script = skillRunScript()
   if (!existsSync(script)) throw new Error('项目内官方 zhihu Skill 缺失，请先运行 pnpm zhihu:skill')
-  const command = process.platform === 'win32'
-    ? await execFileAsync('powershell', ['-ExecutionPolicy', 'Bypass', '-File', script, 'status'], { timeout: 20000 })
-    : await execFileAsync('/bin/bash', [script, 'status'], { timeout: 20000 })
-  return parseJsonLine(command.stdout) || {}
+  try {
+    const command = process.platform === 'win32'
+      ? await execFileAsync('powershell', ['-ExecutionPolicy', 'Bypass', '-File', script, 'status'], { timeout: 20000 })
+      : await execFileAsync('/bin/bash', [script, 'status'], { timeout: 20000 })
+    return parseJsonLine(command.stdout) || {}
+  } catch (error) {
+    return parseJsonLine(error.stdout) || {}
+  }
 }
 
 export function candidateCliPaths(status) {
@@ -49,6 +56,7 @@ export function candidateCliPaths(status) {
     status?.cli?.binary_path,
     path.join(home, 'Library/Application Support/zhihu-cli/current/zhihu-cli'),
     path.join(home, '.local/share/zhihu-cli/current/zhihu-cli'),
+    path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData/Local'), 'ZhihuCLI/current/zhihu-cli.exe'),
   ].filter(Boolean)
 }
 
@@ -64,7 +72,7 @@ export async function runCli(args, timeout = 30000) {
   const cli = await resolveCliPath()
   if (!cli) throw new Error('zhihu-cli 不可用，请先运行 pnpm zhihu:setup')
   try {
-    const { stdout } = await execFileAsync(cli, args, { timeout })
+    const { stdout } = await execFileAsync(cli, args, { timeout, env: process.env })
     return parseJsonLine(stdout)
   } catch (error) {
     const parsed = parseJsonLine(error.stdout)
