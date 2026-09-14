@@ -51,14 +51,20 @@ test('the archive waits for the profile and memory reel before opening the vault
   }
 
   await expect(scene).toHaveAttribute('data-phase', 'ready')
+  await scene.evaluate((element) => {
+    const phases = [element.dataset.phase]
+    new MutationObserver(() => phases.push(element.dataset.phase))
+      .observe(element, { attributes: true, attributeFilter: ['data-phase'] })
+    Object.assign(window, { observedArchivePhases: phases })
+  })
   await page.keyboard.press('e')
-  await expect(scene).toHaveAttribute('data-phase', 'audit', { timeout: 4_000 })
+  await page.waitForFunction(() => (window as unknown as { observedArchivePhases: string[] }).observedArchivePhases.includes('audit'))
   await page.screenshot({ path: 'playtest/archive-door-02-audit.png' })
 
-  await expect(scene).toHaveAttribute('data-phase', 'unlocking', { timeout: 12_000 })
+  await page.waitForFunction(() => (window as unknown as { observedArchivePhases: string[] }).observedArchivePhases.includes('unlocking'), undefined, { timeout: 12_000 })
   await page.screenshot({ path: 'playtest/archive-door-03-unlocking.png' })
 
-  await expect(scene).toHaveAttribute('data-phase', 'opening', { timeout: 4_000 })
+  await page.waitForFunction(() => (window as unknown as { observedArchivePhases: string[] }).observedArchivePhases.includes('opening'))
   const earlyAngle = await scene.evaluate((element) => element.style.getPropertyValue('--door-angle'))
   await page.screenshot({ path: 'playtest/archive-door-04a-seal-break.png' })
 
@@ -83,6 +89,9 @@ test('the archive waits for the profile and memory reel before opening the vault
   expect(Math.abs(Number.parseFloat(lateAngle))).toBeGreaterThan(68)
 
   await expect(scene).toHaveAttribute('data-phase', 'portal', { timeout: 7_000 })
+  const archivePhases = await page.evaluate(() => (window as unknown as { observedArchivePhases: string[] }).observedArchivePhases)
+  expect(archivePhases.filter(phase => ['sitting', 'audit', 'unlocking', 'opening', 'portal'].includes(phase)))
+    .toEqual(['sitting', 'audit', 'unlocking', 'opening', 'portal'])
   await expect(page.locator('.archive-audit-message')).toHaveText('门已经打开了。准备好以后，就往前走吧。')
   await expect(page.locator('.archive-vault-portal-state')).toBeVisible()
   await expect(page.locator('.archive-vault-door-3d')).toBeVisible()
