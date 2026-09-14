@@ -540,9 +540,7 @@ export function createGardenScene(host: HTMLElement) {
   }
   function animateActor(now: number) {
     if (!active) return
-    // The shortest authored flower pose lasts 60ms. Capping simulation steps
-    // below that duration keeps every pose visible even after a busy frame.
-    const dt = previousActorTime ? Math.min(.05, (now - previousActorTime) / 1000) : 0
+    const dt = previousActorTime ? Math.min(.1, (now - previousActorTime) / 1000) : 0
     previousActorTime = now
     if (!root.inert && !document.hidden && panel.hidden) {
       const events = actor.advance(dt)

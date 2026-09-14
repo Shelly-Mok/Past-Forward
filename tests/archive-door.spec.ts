@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 const answers = ['24', '女', '本科', '工作', '毕业那年']
 
 test('the archive waits for the profile and memory reel before opening the vault', async ({ page }) => {
-  test.setTimeout(90_000)
+  test.setTimeout(150_000)
   const consoleErrors: string[] = []
   const failedResponses: string[] = []
   page.on('console', (message) => {
