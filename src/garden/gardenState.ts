@@ -1,4 +1,4 @@
-import type { ArchiveProfile } from '../archive/archiveInterview'
+import { ARCHIVE_PROFILE_KEYS, readLifeEventEntries, readLifeEvents, type ArchiveProfile, type LifeEventEntry } from '../archive/archiveInterview'
 
 export const GARDEN_SAVE_KEY = 'life-backtest.garden.v2'
 const GARDEN_SAVE_LEGACY_KEYS = ['life-backtest.garden.v1']
@@ -6,9 +6,9 @@ const GARDEN_SAVE_LEGACY_KEYS = ['life-backtest.garden.v1']
 export const GARDEN_DEBUG_PROFILE: ArchiveProfile = {
   age: '24',
   gender: '演示',
-  family: '演示 · 与父母同住',
-  status: '演示 · 学生',
-  rewind: '18岁',
+  education: '演示 · 本科',
+  health: '良好',
+  lifeEvent: '18岁高考',
 }
 export const FLOWER_NAMES = ['种子', '含苞', '待放', '盛放', '初落', '渐落', '结籽', '延续']
 export type RewindTarget = { raw: string; kind: 'age' | 'year' | 'stage' | 'missing'; age: number | null; year: number | null }
@@ -28,6 +28,8 @@ export type GardenState = {
   line: GardenLine
   forkAge: number | null
   parallelPlanted: PlantedChoice[]
+  ideal: PlantedChoice[]
+  parallelIdeal: PlantedChoice[]
 }
 
 export function ageValue(value: unknown): number | null {
@@ -40,21 +42,26 @@ export function ageValue(value: unknown): number | null {
 export function cleanProfile(value: unknown): ArchiveProfile {
   const result: ArchiveProfile = {}
   if (!value || typeof value !== 'object') return result
-  for (const key of ['age', 'gender', 'family', 'status', 'rewind'] as const) {
+  for (const key of ARCHIVE_PROFILE_KEYS) {
     const text = (value as Record<string, unknown>)[key]
     if (typeof text === 'string' && text.trim()) result[key] = text.trim().slice(0, 200)
   }
+  const extras = readLifeEventEntries((value as { lifeEvents?: unknown }).lifeEvents)
+  if (extras.length) result.lifeEvents = extras
   return result
 }
 
 export function parseTarget(value?: string): RewindTarget {
   const raw = value?.trim() ?? ''
   if (!raw) return { raw, kind: 'missing', age: null, year: null }
-  const ageMatch = raw.match(/^(?:回到|回看|想回到)?\s*(\d{1,3})\s*岁?$/)
+  const ageMatch = raw.match(/(\d{1,3})\s*(?:周)?岁/)
   const age = ageMatch ? ageValue(ageMatch[1]) : null
-  if (age !== null) return { raw, kind: 'age', age, year: null }
-  const yearMatch = raw.match(/^(?:回到|回看|想回到)?\s*((?:19|20)\d{2})\s*年?$/)
-  if (yearMatch) return { raw, kind: 'year', age: null, year: Number(yearMatch[1]) }
+  const yearMatch = raw.match(/((?:19|20)\d{2})\s*年/)
+  const year = yearMatch ? Number(yearMatch[1]) : null
+  if (age !== null) return { raw, kind: 'age', age, year }
+  if (year !== null) return { raw, kind: 'year', age: null, year }
+  const bareYear = raw.match(/^(?:回到|回看|想回到)?\s*((?:19|20)\d{2})\s*年?$/)
+  if (bareYear) return { raw, kind: 'year', age: null, year: Number(bareYear[1]) }
   return { raw, kind: 'stage', age: null, year: null }
 }
 
@@ -77,6 +84,23 @@ export function linePlanted(state: Pick<GardenState, 'line' | 'forkAge' | 'plant
   ]
 }
 
+/** Ideal picks on the walking line. Never shown as flowers; used by act-four fusion. */
+export function lineIdeal(state: Pick<GardenState, 'line' | 'forkAge' | 'ideal' | 'parallelIdeal'>): PlantedChoice[] {
+  if (state.line !== 'parallel' || state.forkAge === null) return state.ideal
+  return [
+    ...state.ideal.filter(item => item.age < state.forkAge!),
+    ...state.parallelIdeal.filter(item => item.age >= state.forkAge!),
+  ]
+}
+
+/** Prefer the ideal node at each planted year; years without an ideal keep the planted choice. */
+export function interviewTrail(state: Pick<GardenState, 'line' | 'forkAge' | 'planted' | 'parallelPlanted' | 'ideal' | 'parallelIdeal'>): PlantedChoice[] {
+  const walking = linePlanted(state)
+  const ideals = lineIdeal(state)
+  if (!ideals.length) return walking
+  return walking.map(item => ideals.find(ideal => ideal.age === item.age) ?? item)
+}
+
 export function forkAges(state: Pick<GardenState, 'planted' | 'currentAge' | 'target'>): number[] {
   const ages = state.planted.map(item => item.age)
   if (state.target.age !== null) ages.push(state.target.age)
@@ -84,12 +108,12 @@ export function forkAges(state: Pick<GardenState, 'planted' | 'currentAge' | 'ta
   return [...new Set(ages.filter(age => state.currentAge === null || age <= state.currentAge))].sort((a, b) => a - b)
 }
 
-export function nextTimelineAge(age: number, targetAge: number | null, currentAge: number | null = null): number | null {
-  const ages = [0, 1, 2].flatMap(band => timelineNodes(band, targetAge, age, currentAge))
+export function nextTimelineAge(age: number, targetAge: number | null, currentAge: number | null = null, extraAges: number[] = []): number | null {
+  const ages = [0, 1, 2].flatMap(band => timelineNodes(band, targetAge, age, currentAge, extraAges))
   return [...new Set(ages)].sort((a, b) => a - b).find(item => item > age) ?? null
 }
 
-export function timelineNodes(band: number, targetAge: number | null, selectedAge: number, currentAge: number | null = null): number[] {
+export function timelineNodes(band: number, targetAge: number | null, selectedAge: number, currentAge: number | null = null, extraAges: number[] = []): number[] {
   const start = [0, 40, 80][Math.max(0, Math.min(2, band))]
   const end = [40, 80, 100][Math.max(0, Math.min(2, band))]
   const cap = currentAge === null ? end : Math.min(end, currentAge)
@@ -98,7 +122,30 @@ export function timelineNodes(band: number, targetAge: number | null, selectedAg
   if (targetAge !== null && timelineBand(targetAge) === band && (currentAge === null || targetAge <= currentAge)) base.push(targetAge)
   if (timelineBand(selectedAge) === band && (currentAge === null || selectedAge <= currentAge)) base.push(selectedAge)
   if (currentAge !== null && timelineBand(currentAge) === band && currentAge >= start && currentAge <= end) base.push(currentAge)
+  for (const extra of extraAges) {
+    if (timelineBand(extra) === band && extra >= start && extra <= cap) base.push(extra)
+  }
   return [...new Set(base)].sort((a, b) => a - b)
+}
+
+export function eventAgesFor(state: Pick<GardenState, 'profile' | 'target'>): number[] {
+  return readLifeEvents(state.profile, state.target.age).map(item => item.age)
+}
+
+export function historyAges(state: Pick<GardenState, 'profile' | 'target' | 'selectedAge' | 'currentAge'>): number[] {
+  const extras = eventAgesFor(state)
+  return [...new Set([0, 1, 2].flatMap(band => timelineNodes(band, state.target.age, state.selectedAge, state.currentAge, extras)))].sort((a, b) => a - b)
+}
+
+export function historyComplete(state: Pick<GardenState, 'profile' | 'target' | 'selectedAge' | 'currentAge' | 'line' | 'forkAge' | 'planted' | 'parallelPlanted'>): boolean {
+  const walking = linePlanted(state)
+  const ages = historyAges(state)
+  return ages.length > 0 && ages.every(age => hasPlanted(walking, age))
+}
+
+export function eventTalkAt(state: Pick<GardenState, 'profile' | 'target' | 'selectedAge' | 'currentAge' | 'line' | 'forkAge' | 'planted' | 'parallelPlanted'>, age: number): LifeEventEntry | null {
+  if (!historyComplete(state)) return null
+  return readLifeEvents(state.profile, state.target.age).find(item => item.age === age) ?? null
 }
 
 export function hasPlanted(planted: PlantedChoice[], age: number, choiceId?: string): boolean {
@@ -114,6 +161,38 @@ export function uniquePlantedByAge(items: PlantedChoice[]): PlantedChoice[] {
 
 export function upsertPlanted(planted: PlantedChoice[], item: PlantedChoice): PlantedChoice[] {
   return uniquePlantedByAge([...planted.filter(entry => entry.age !== item.age), item])
+}
+
+/** Drop this year and everything after it. Earlier flowers stay. */
+export function clearPlantedFrom(items: PlantedChoice[], age: number): PlantedChoice[] {
+  return items.filter(item => item.age < age)
+}
+
+/** Reset the walking line from `age`. Later parallel forks that start here or later also fall away. */
+export function resetYearChoice(state: GardenState, age: number): GardenState {
+  const next: GardenState = {
+    ...state,
+    planted: [...state.planted],
+    parallelPlanted: [...state.parallelPlanted],
+    ideal: [...state.ideal],
+    parallelIdeal: [...state.parallelIdeal],
+  }
+  if (next.line === 'parallel' && next.forkAge !== null && age >= next.forkAge) {
+    next.parallelPlanted = clearPlantedFrom(next.parallelPlanted, age)
+    next.parallelIdeal = clearPlantedFrom(next.parallelIdeal, age)
+  } else {
+    next.planted = clearPlantedFrom(next.planted, age)
+    next.ideal = clearPlantedFrom(next.ideal, age)
+    if (next.forkAge !== null && next.forkAge >= age) {
+      next.line = 'main'
+      next.forkAge = null
+      next.parallelPlanted = []
+      next.parallelIdeal = []
+    }
+  }
+  const walking = linePlanted(next)
+  if (next.currentAge !== null && !hasPlanted(walking, next.currentAge)) next.reachedPresent = false
+  return next
 }
 
 /** The present-age node itself: clicking it opens the four-hole fork. */
@@ -142,17 +221,18 @@ export function readPlanted(value: unknown): PlantedChoice[] {
 }
 export function newGardenState(profile: unknown): GardenState {
   const safe = cleanProfile(profile)
-  const target = parseTarget(safe.rewind)
+  const target = parseTarget(safe.lifeEvent)
   const currentAge = ageValue(safe.age)
   return {
     version: 2, profile: safe, currentAge, target, selectedAge: 0,
     planted: [], records: [], recordedAt: new Date().toISOString(), reachedPresent: false,
     line: 'main', forkAge: null, parallelPlanted: [],
+    ideal: [], parallelIdeal: [],
   }
 }
 export function isSkipDemoProfile(profile?: ArchiveProfile): boolean {
   if (!profile) return false
-  return (['age', 'gender', 'family', 'status', 'rewind'] as const)
+  return ARCHIVE_PROFILE_KEYS
     .every(key => (profile[key] ?? '') === (GARDEN_DEBUG_PROFILE[key] ?? ''))
 }
 
@@ -160,7 +240,7 @@ export function restoreGardenState(raw: string | null, profile?: ArchiveProfile)
   const incoming = profile && isSkipDemoProfile(profile) ? undefined : profile
   const fresh = newGardenState(incoming ?? profile)
   try {
-    const value = JSON.parse(raw ?? 'null') as { version?: number; profile?: unknown; selectedAge?: unknown; target?: RewindTarget; planted?: unknown; records?: unknown; recordedAt?: unknown; reachedPresent?: unknown; line?: unknown; forkAge?: unknown; parallelPlanted?: unknown } | null
+    const value = JSON.parse(raw ?? 'null') as { version?: number; profile?: unknown; selectedAge?: unknown; target?: RewindTarget; planted?: unknown; records?: unknown; recordedAt?: unknown; reachedPresent?: unknown; line?: unknown; forkAge?: unknown; parallelPlanted?: unknown; ideal?: unknown; parallelIdeal?: unknown } | null
     if (!value || (value.version !== 1 && value.version !== 2) || !value.profile || typeof value.profile !== 'object') return fresh
     const savedProfile = cleanProfile(value.profile)
     // Skip-link 24-year demo must not wipe a real registration.
@@ -168,7 +248,10 @@ export function restoreGardenState(raw: string | null, profile?: ArchiveProfile)
       return restoreGardenState(raw)
     }
     // A new second-act registration starts its own garden; never reuse another person's progress.
-    if (incoming && (['age', 'gender', 'family', 'status', 'rewind'] as const).some(key => savedProfile[key] !== fresh.profile[key])) return fresh
+    if (incoming && (
+      ARCHIVE_PROFILE_KEYS.some(key => savedProfile[key] !== fresh.profile[key])
+      || JSON.stringify(savedProfile.lifeEvents ?? []) !== JSON.stringify(fresh.profile.lifeEvents ?? [])
+    )) return fresh
     const state = newGardenState(savedProfile)
     state.selectedAge = ageValue(value.selectedAge) ?? state.selectedAge
     if (state.currentAge !== null && state.selectedAge > state.currentAge) state.selectedAge = state.currentAge
@@ -179,9 +262,12 @@ export function restoreGardenState(raw: string | null, profile?: ArchiveProfile)
     state.line = value.line === 'parallel' ? 'parallel' : 'main'
     state.forkAge = ageValue(value.forkAge)
     state.parallelPlanted = readPlanted(value.parallelPlanted).filter(item => state.currentAge === null || item.age <= state.currentAge)
+    state.ideal = readPlanted(value.ideal).filter(item => state.currentAge === null || item.age <= state.currentAge)
+    state.parallelIdeal = readPlanted(value.parallelIdeal).filter(item => state.currentAge === null || item.age <= state.currentAge)
     if (state.line === 'parallel' && state.forkAge === null) {
       state.line = 'main'
       state.parallelPlanted = []
+      state.parallelIdeal = []
     }
     state.records = Array.isArray(value.records) ? value.records.filter(r => r && ageValue(r.age) !== null && typeof r.text === 'string' && typeof r.recordedAt === 'string').slice(-100).map(r => ({ age: r.age, text: r.text.slice(0, 500), recordedAt: r.recordedAt })) : []
     state.recordedAt = typeof value.recordedAt === 'string' ? value.recordedAt : state.recordedAt
@@ -199,8 +285,8 @@ export function debugGardenProfile(search: URLSearchParams = new URLSearchParams
   const profile = { ...GARDEN_DEBUG_PROFILE }
   const age = ageValue(search.get('age'))
   if (age !== null) profile.age = String(age)
-  const rewind = search.get('rewind')?.trim()
-  if (rewind) profile.rewind = rewind.slice(0, 80)
+  const event = (search.get('event') ?? search.get('rewind'))?.trim()
+  if (event) profile.lifeEvent = event.slice(0, 80)
   return profile
 }
 

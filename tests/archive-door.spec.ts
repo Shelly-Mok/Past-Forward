@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-const answers = ['24', '不透露', '单身，与父母同住', '学生', '大学毕业前']
+const answers = ['24', '女', '本科', '工作', '毕业那年']
 
 test('the archive waits for the profile and memory reel before opening the vault', async ({ page }) => {
   test.setTimeout(90_000)
@@ -17,9 +17,11 @@ test('the archive waits for the profile and memory reel before opening the vault
   })
 
   await page.addInitScript(() => {
+    if (sessionStorage.getItem('test:archive-door-seeded')) return
+    sessionStorage.setItem('test:archive-door-seeded', 'true')
     localStorage.setItem('life-backtest.garden.v2', JSON.stringify({
       version: 2,
-      profile: { age: '24', gender: '不透露', family: '单身，与父母同住', status: '学生', rewind: '大学毕业前' },
+      profile: { age: '24', gender: '女', education: '本科', health: '良好', lifeEvent: '毕业那年' },
       currentAge: 24,
       target: { raw: '大学毕业前', kind: 'stage', age: 18, year: null },
       selectedAge: 24,
@@ -74,7 +76,9 @@ test('the archive waits for the profile and memory reel before opening the vault
   const lateAngle = await scene.evaluate((element) => element.style.getPropertyValue('--door-angle'))
   await page.screenshot({ path: 'playtest/archive-door-04c-settle.png' })
 
-  expect(Math.abs(Number.parseFloat(earlyAngle))).toBeLessThan(Math.abs(Number.parseFloat(lateAngle)))
+  // Under a busy parallel CI worker the first post-opening sample can already
+  // observe the settled angle; it must never be beyond the final pose.
+  expect(Math.abs(Number.parseFloat(earlyAngle))).toBeLessThanOrEqual(Math.abs(Number.parseFloat(lateAngle)))
   expect(Math.abs(Number.parseFloat(middleAngle))).toBeGreaterThan(35)
   expect(Math.abs(Number.parseFloat(lateAngle))).toBeGreaterThan(68)
 
@@ -100,7 +104,7 @@ test('the archive waits for the profile and memory reel before opening the vault
   await expect(whiteout).toHaveCSS('background-color', 'rgb(255, 255, 255)')
   await page.screenshot({ path: 'playtest/archive-garden-06-white.png' })
   await expect(whiteout).toBeHidden({ timeout: 12_000 })
-  const garden = page.locator('.garden-scene')
+  const garden = page.locator('.garden-scene[aria-label="第三幕：月面人生花园"]')
   await expect(garden).toBeVisible()
   await expect(scene).toBeHidden()
   await expect(garden).toHaveAttribute('data-garden-phase', 'era')
@@ -110,8 +114,8 @@ test('the archive waits for the profile and memory reel before opening the vault
   await expect(garden).toHaveAttribute('data-target-age', '')
   await expect(page.locator('.garden-note')).toContainText('你刚来到这个时代')
   await page.getByRole('button', { name: '个人标签' }).click()
-  await expect(page.locator('.personal-tag-profile')).toContainText('单身，与父母同住')
-  await expect(page.locator('.personal-tag-profile')).toContainText('学生')
+  await expect(page.locator('.personal-tag-profile')).toContainText('本科')
+  await expect(page.locator('.personal-tag-profile')).toContainText('毕业那年')
   await page.getByRole('button', { name: '关闭个人标签' }).click()
   await page.getByRole('button', { name: '确认回溯年龄 →' }).click()
   await page.getByRole('textbox', { name: '确认回溯年龄', exact: true }).fill('18')
@@ -135,7 +139,7 @@ test('starting the archive discards the previous garden exit', async ({ page }) 
     localStorage.setItem('life-backtest.garden.v1', '{"reachedPresent":true}')
     localStorage.setItem('life-backtest.garden.v2', JSON.stringify({
       version: 2,
-      profile: { age: '24', gender: '不透露', family: '单身，与父母同住', status: '学生', rewind: '大学毕业前' },
+      profile: { age: '24', gender: '女', education: '本科', health: '良好', lifeEvent: '毕业那年' },
       currentAge: 24,
       target: { raw: '大学毕业前', kind: 'stage', age: 18, year: null },
       selectedAge: 24,

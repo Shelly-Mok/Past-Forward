@@ -31,6 +31,8 @@ describe('garden era content', () => {
     expect(portraits.some(item => item.slot.includes('旁路'))).toBe(false)
     expect(portraits[0].npc.name).toBe(eraNodeForAge(20).choices[0].npc.name)
     expect(portraits[0].age).toBe(20)
+    expect(portraits[0].note).not.toMatch(/%/)
+    expect(portraits[0].note).toMatch(/对照|不是匹配分数/)
     for (const field of ['background', 'options', 'choice', 'cost', 'reflection'] as const) {
       expect(portraits[0].npc.causal[field].length).toBeGreaterThan(4)
     }

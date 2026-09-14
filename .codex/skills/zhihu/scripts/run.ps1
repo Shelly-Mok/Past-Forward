@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 function Fail-Package([string]$Message) {
     @{ ok = $false; error = @{ code = "INVALID_PACKAGE"; message = $Message } } | ConvertTo-Json -Compress

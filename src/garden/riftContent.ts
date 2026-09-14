@@ -1,4 +1,5 @@
-import { eraChoice, eraNodeForAge, ownChoice, type EraNpc } from './gardenContent'
+import { eraChoice, eraNodeForAge, ownChoice, signalPortraits, SIGNAL_SLOTS, type EraNpc, type SignalPortrait } from './gardenContent'
+import { explainAuthored, type JourneyContext } from '../zhihu/recommend'
 
 export type RiftKind = 'backtrack' | 'forward' | 'foresight' | 'end'
 
@@ -12,9 +13,7 @@ export type RiftHole = {
 }
 
 export const RIFT_HOLES: RiftHole[] = [
-  { id: 'backtrack', label: '回溯', kicker: '第四幕 · 平行宇宙', hint: '重访改造的那条路', x: 24.2, y: 41.5 },
-  { id: 'foresight', label: '前瞻', kicker: '第五幕 · 尚未发生的年', hint: '看现年后三年的可能', x: 50.0, y: 32.4 },
-  { id: 'end', label: '结束', kicker: '第六幕 · 带着领悟离开', hint: '把选择停在这一刻', x: 75.8, y: 41.0 },
+  { id: 'backtrack', label: '回溯', kicker: '第四幕 · 另一条时间线', hint: '重访改造的那条路', x: 50, y: 42 },
 ]
 
 export const CROSSROADS_VOYAGE = {
@@ -279,14 +278,47 @@ export function foresightTeller(age: number, branchIndex: number): EraNpc {
   return node.choices[branchIndex % node.choices.length].npc
 }
 
-export function closestForesightId(year: ForesightYear, lastChoiceId?: string | null): string {
+export function closestForesightId(year: ForesightYear, lastChoiceId?: string | null, hints: string[] = []): string {
   let best = year.branches[0]
-  let bestBoost = -1
+  let bestScore = -1
   for (const branch of year.branches) {
-    const boost = lastChoiceId ? (branch.boosts?.[lastChoiceId] ?? 0) : 0
-    if (boost > bestBoost) { best = branch; bestBoost = boost }
+    let score = lastChoiceId ? (branch.boosts?.[lastChoiceId] ?? 0) : 0
+    const blob = `${branch.id} ${branch.label} ${branch.event} ${branch.later}`
+    for (const hint of hints) {
+      const text = hint.trim()
+      if (text.length >= 2 && blob.includes(text)) score += 0.2
+    }
+    if (score > bestScore) { best = branch; bestScore = score }
   }
   return best.id
+}
+
+export type YearPlan = { age: number, label: string, note: string }
+export type ThreeYearPlan = { kicker: string, reading: string, years: YearPlan[] }
+
+export function threeYearPlanFor(input: {
+  currentAge: number | null
+  openedKey?: string | null
+  lastChoiceId?: string | null
+  plans?: string
+  hints?: string[]
+}): ThreeYearPlan {
+  const years = foresightYearsFor(input.currentAge)
+  return {
+    kicker: '接下来三年的打算',
+    years: years.map(year => {
+      const openedId = input.openedKey?.startsWith(`${year.age}:`)
+        ? input.openedKey.slice(`${year.age}:`.length)
+        : null
+      const branch = year.branches.find(item => item.id === openedId)
+        ?? year.branches.find(item => item.id === closestForesightId(year, input.lastChoiceId, input.hints))
+        ?? year.branches[0]
+      return { age: year.age, label: branch.label, note: branch.later }
+    }),
+    reading: input.plans?.trim()
+      ? `结合你写下的「${input.plans.trim()}」，这三年不是命运剧本，是你可以改口的路线图。`
+      : '你还没有写下个人展望。这三年的路径先按你走过的选择推演，等你写下一句打算，再把它收进计划。',
+  }
 }
 
 /** Local fallback post. Live Zhihu search fills the same shape with source: 'zhihu'. */
@@ -316,7 +348,7 @@ export function choicePostFor(age: number, choiceId: string): ChoicePost {
     identity: choice.npc.identity,
     excerpt: choice.npc.proposition,
     paragraphs: [choice.npc.match, choice.npc.causal.choice, choice.npc.causal.cost, choice.npc.causal.reflection],
-    votes: `${choice.peer}% 的同龄人走过相近的路`,
+    votes: '作者骨架 · 不是匹配分数',
     href: 'https://www.zhihu.com',
   }
 }
@@ -336,7 +368,7 @@ export function bloggerArchiveFor(item: { npc: EraNpc, choice: { id: string, lab
       identity: npc.identity,
       excerpt: npc.proposition,
       paragraphs: [choice.reason, npc.match],
-      votes: `${choice.peer}% 的同龄人走过相近的路`,
+      votes: '作者骨架 · 不是匹配分数',
       href: 'https://www.zhihu.com',
     },
     {
@@ -366,8 +398,136 @@ export function bloggerArchiveFor(item: { npc: EraNpc, choice: { id: string, lab
   ]
 }
 
-export const END_INSIGHT = '看来你对自己当时的选择，有了不一样的体会。'
 export const END_LEAD = '这条回测不是命运判决，只是把被推着走的几年，重新看成可审视的选择链。'
+
+export type EndPlanted = { age: number, choiceId: string, label?: string }
+export type EndSession = { age: string, flowers: string, interview: string, next: string }
+export type EndSourcePerson = {
+  slot: string
+  kind: 'A' | 'B'
+  name: string
+  headline: string
+  quote: string
+  href: string
+}
+
+export type EndSources = {
+  empty: boolean
+  refined: boolean
+  note: string
+  ask: string
+  people: EndSourcePerson[]
+}
+
+function plantedLabelOf(item: EndPlanted) {
+  if (item.label?.trim()) return item.label.trim()
+  if (item.choiceId === 'own') return ownChoice(item.age, item.label ?? '').label
+  return eraChoice(item.age, item.choiceId)?.label ?? item.choiceId
+}
+
+export function endInsightFor(input: {
+  planted: EndPlanted[]
+  plans?: string
+  agency?: string | null
+}): string {
+  const plans = input.plans?.trim()
+  if (plans) return `你给以后写下的是「${plans}」。`
+  const agency = input.agency?.trim()
+  if (agency) return `回过头看，当时更像是${agency}，不是被写成命运。`
+  if (!input.planted.length) return '这一局还停在选择发生之前。'
+  const first = input.planted[0]
+  const last = input.planted[input.planted.length - 1]
+  const firstLabel = plantedLabelOf(first)
+  if (input.planted.length === 1) return `${first.age} 岁，你写下了「${firstLabel}」。`
+  return `从 ${first.age} 岁的「${firstLabel}」，走到 ${last.age} 岁的「${plantedLabelOf(last)}」。`
+}
+
+export function endSessionFor(input: {
+  planted: EndPlanted[]
+  currentAge: number | null
+  agency?: string | null
+  plans?: string
+  nextLabel?: string | null
+}): EndSession {
+  return {
+    age: input.currentAge !== null ? `${input.currentAge} 岁` : '尚未登记',
+    flowers: input.planted.length ? `${input.planted.length} 朵` : '还没有花',
+    interview: input.agency?.trim() || '还没有做完回测',
+    next: input.plans?.trim() || input.nextLabel?.trim() || '还没有写下打算',
+  }
+}
+
+export const END_SOURCE_ASK = '要不要从当时最贵的那一笔，继续看他们怎么走？'
+
+function lastNodePortraits(age: number, choiceId: string): SignalPortrait[] {
+  const planted = signalPortraits(age, choiceId, 'planted')
+  const current = eraNodeForAge(age)
+  const chosen = eraChoice(age, choiceId) ?? current.choices[0]
+  const peerNode = eraNodeForAge(age + 5)
+  const peerChoice = peerNode.choices.find(item => item.id === chosen.id)
+    ?? peerNode.choices[chosen.flowerKind % peerNode.choices.length]
+    ?? chosen
+  const peer: SignalPortrait = {
+    slot: SIGNAL_SLOTS[1],
+    kind: 'A',
+    npc: {
+      ...peerChoice.npc,
+      match: `相近的年纪，TA 也站在「${chosen.label}」这一侧。`,
+    },
+    note: '也这样选的人',
+    choice: chosen,
+    age: peerNode.age,
+  }
+  const near = planted.find(item => item.kind === 'A') ?? planted[0]
+  const far = planted.find(item => item.kind === 'B') ?? planted[1]
+  return [near, peer, far].filter((item): item is SignalPortrait => Boolean(item))
+}
+
+function interviewFilled(interview?: JourneyContext['interview'] | null) {
+  return (interview?.nodes ?? []).some(node => Boolean(
+    node.slots?.choice || node.slots?.motive || node.slots?.constraint || node.slots?.alternative || node.slots?.agency,
+  ))
+}
+
+export function endSourcesFor(input: {
+  planted: EndPlanted[]
+  currentAge?: number | null
+  interview?: JourneyContext['interview'] | null
+  profile?: JourneyContext['profile']
+}): EndSources {
+  const last = input.planted.at(-1)
+  if (!last) {
+    return { empty: true, refined: false, note: '还没有对得上的原文', ask: END_SOURCE_ASK, people: [] }
+  }
+  const refined = interviewFilled(input.interview)
+  const journey = {
+    selectedAge: last.age,
+    currentAge: input.currentAge ?? last.age,
+    calendarYear: null,
+    profile: input.profile ?? {},
+    planted: input.planted,
+    interview: input.interview ?? undefined,
+  }
+  return {
+    empty: false,
+    refined,
+    note: refined ? '结合第四幕访谈，再看这三位' : '第三幕这一年遇见的人',
+    ask: END_SOURCE_ASK,
+    people: lastNodePortraits(last.age, last.choiceId).map(item => {
+      const explain = explainAuthored(item.choice, journey)
+      return {
+        slot: item.slot,
+        kind: item.kind,
+        name: item.npc.name,
+        headline: explain.headline.includes(item.choice.npc.name)
+          ? explain.headline.replace(item.choice.npc.name, item.npc.name)
+          : explain.headline,
+        quote: '',
+        href: choicePostFor(item.age, item.choice.id).href,
+      }
+    }),
+  }
+}
 
 export type EndSkyLetter = {
   kicker: string
@@ -415,8 +575,79 @@ export function endSkyLetterFor(planted: Array<{ age: number, choiceId: string, 
   }
 }
 
-export const DEMO_EXITS = [
-  { title: '阅读原文（演示）', href: 'https://www.zhihu.com', copy: '回到公开回答看完整论证。本页不接真实匹配。' },
-  { title: '知识付费咨询（演示入口）', href: 'https://www.zhihu.com/consult', copy: '若还想把某个节点聊清楚，可以从同领域答主进入咨询。' },
-  { title: '盐选会员（演示入口）', href: 'https://www.zhihu.com/xen/market/vip', copy: '把「看懂选择」继续变成可阅读的长内容与专栏。' },
+export const END_EXITS = [
+  {
+    id: 'original',
+    title: '阅读原文',
+    demo: '（演示）',
+    href: 'https://www.zhihu.com',
+    copy: '回到这篇公开回答，看完整论证。不是命运定论。',
+  },
+  {
+    id: 'consult',
+    title: '和 TA 接着聊',
+    demo: '（演示入口）',
+    href: 'https://www.zhihu.com/consult',
+    copy: '若还想把这个节点聊清楚，可以从同领域答主进入咨询。',
+  },
 ]
+
+export const YANXUAN_HREF = 'https://www.zhihu.com/xen/market/vip'
+
+export type OutlookBlogger = {
+  name: string
+  headline: string
+  quote: string
+  href: string
+  /** Public Zhihu avatar returned by live search. Authored fallbacks intentionally leave this empty. */
+  avatar?: string
+  why: string
+  kind: 'peer' | 'elder'
+  source?: 'zhihu' | 'authored' | 'demo'
+}
+
+export function outlookBloggerPool(input: {
+  planted: Array<{ age: number, choiceId: string, label?: string }>
+  currentAge?: number | null
+}): OutlookBlogger[] {
+  const seen = new Set<string>()
+  const people: OutlookBlogger[] = []
+  const years = [...input.planted].sort((a, b) => b.age - a.age)
+  for (const item of years) {
+    for (const portrait of lastNodePortraits(item.age, item.choiceId)) {
+      if (seen.has(portrait.npc.name)) continue
+      seen.add(portrait.npc.name)
+      people.push({
+        name: portrait.npc.name,
+        headline: portrait.npc.match || portrait.npc.identity,
+        quote: '',
+        href: choicePostFor(portrait.age, portrait.choice.id).href,
+        why: portrait.npc.match || `TA 也站在「${portrait.choice.label}」这一侧。`,
+        kind: portrait.kind === 'B' ? 'elder' : 'peer',
+        source: 'authored',
+      })
+    }
+  }
+  return people
+}
+
+export function outlookKindPool(pool: OutlookBlogger[], kind: 'peer' | 'elder'): OutlookBlogger[] {
+  const matched = pool.filter(item => item.kind === kind)
+  return matched.length ? matched : pool
+}
+
+export function pickOutlookBlogger(pool: OutlookBlogger[], index: number): OutlookBlogger {
+  if (!pool.length) {
+    return {
+      name: '走过这条路的人',
+      headline: '还没有对得上的原文',
+      quote: '',
+      href: 'https://www.zhihu.com',
+      why: '这一局还没有对得上的选择点。按选择点对照，不是匹配分数。',
+      kind: 'peer',
+      source: 'authored',
+    }
+  }
+  const size = pool.length
+  return pool[((index % size) + size) % size]
+}

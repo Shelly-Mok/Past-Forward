@@ -14,7 +14,7 @@ export type ZhihuSearchItem = {
   AuthorityLevel?: string | number
   RankingScore?: number
   EditTime?: number
-  Author?: { Name?: string; Headline?: string }
+  Author?: { Name?: string; Headline?: string; Avatar?: string; avatar?: string }
 }
 
 export type ZhihuHealth = {

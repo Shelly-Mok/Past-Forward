@@ -1,8 +1,15 @@
-// Zero-based indices into the approved sixteen-pose lifecycle atlas.
-export const FLOWER_ENDPOINTS = [0, 5, 7, 10, 12, 13, 15, 15] as const
-export const FLOWER_POSES = ['种子落定', '破壳', '发芽', '长叶', '结苞', '含苞', '花苞舒展', '微微开放', '渐开', '半开', '盛放', '花瓣低垂', '初落', '渐落', '残瓣', '结籽']
-// Hold visible poses; bud opening and the first complete bloom get extra time.
-const HOLD = [.6, .32, .4, .4, .4, .52, .42, .46, .4, .4, .6, .42, .46, .46, .46, .6]
+// Zero-based indices into each row of the 8 × 16 lifecycle atlas. Every choice
+// now grows into its own complete flower; age still selects the story chapter,
+// but no longer substitutes a generic age-shaped plant.
+export const FLOWER_ENDPOINTS = [15, 15, 15, 15, 15, 15, 15, 15] as const
+export const FLOWER_POSES = [
+  '种子落定', '破壳', '发芽', '第一片叶', '第二片叶', '短茎', '长茎', '花苞形成',
+  '花苞膨胀', '花瓣初开', '三分之一开放', '半开', '四分之三开放', '完全盛放',
+  '轻微呼吸', '稳定盛放',
+]
+// Every authored pose remains visible, but the complete sequence now resolves
+// in roughly 1.5 seconds so repeated planting keeps a brisk game rhythm.
+const HOLD = [.07, .06, .07, .07, .07, .08, .08, .09, .09, .09, .1, .1, .1, .12, .1, .16]
 export function flowerEndpoint(chapter: number) { return FLOWER_ENDPOINTS[Math.max(0, Math.min(7, Math.trunc(chapter)))] }
 export function flowerDuration(chapter: number) {
   return HOLD.slice(0, flowerEndpoint(chapter) + 1).reduce((sum, seconds) => sum + seconds, 0)
@@ -13,7 +20,8 @@ export function flowerPoseAt(chapter: number, elapsed: number) {
   for (let pose = 0; pose <= end; pose++) {
     if (remaining < HOLD[pose] || pose === end) {
       // Brief blending only between adjacent poses; no scale transforms or skipped stages.
-      const mix = pose < end ? Math.max(0, Math.min(1, (remaining - HOLD[pose] + .12) / .12)) : 0
+      const mixWindow = Math.min(.055, HOLD[pose])
+      const mix = pose < end ? Math.max(0, Math.min(1, (remaining - HOLD[pose] + mixWindow) / mixWindow)) : 0
       return { pose, next: Math.min(end, pose + 1), mix }
     }
     remaining -= HOLD[pose]

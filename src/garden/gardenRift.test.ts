@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { renderRiftView, type RiftContext, type RiftHandlers, type RiftView } from './gardenRift'
+import { emptyInterview, type InterviewState } from '../interview/interviewState'
+import { fillOutlookAvatar, renderRiftView, type RiftContext, type RiftHandlers, type RiftView } from './gardenRift'
 
 class FakeNode {
   tagName: string
@@ -81,6 +82,7 @@ function ctx(extra: Partial<RiftContext> = {}): RiftContext {
     targetAge: 20,
     profileAge: '22',
     lastChoiceId: 'major',
+    interview: extra.interview ?? null,
     view: view('backtrack'),
     ...extra,
   }
@@ -172,30 +174,20 @@ describe('garden rift pages', () => {
     expect(textOf(report)).toContain('再和他坐一会儿')
   })
 
-  it('embeds follow companions inside foresight instead of a separate page', () => {
+  it('keeps foresight to the next three years and does not put companion bloggers there', () => {
     const pick = mount(ctx({ view: view('foresight') }))
-    expect(textOf(pick)).toContain('概率推演，非命运定论')
     expect(textOf(pick)).toContain('第五幕')
+    expect(textOf(pick)).toContain('不是命运定论')
     expect(textOf(pick)).not.toContain('去前进')
+    expect(textOf(pick)).not.toContain('沿着相近的人生继续')
     expect(pick.querySelector('.garden-rift-play')?.classList.contains('is-foresight')).toBe(true)
-    expect(pick.querySelector('.garden-rift-follow')).not.toBeNull()
-    expect(pick.querySelectorAll('.garden-rift-npc').length).toBeGreaterThanOrEqual(2)
-    expect(pick.querySelectorAll('.garden-rift-portraits .garden-rift-world').length).toBeGreaterThanOrEqual(2)
-
-    const follow = mount(ctx({ view: view('foresight', { followSlot: 'A · 同代相近' }) }))
-    expect(follow.querySelectorAll('.garden-rift-npc').length).toBeGreaterThanOrEqual(2)
-    expect(follow.querySelectorAll('.garden-rift-npc').filter(node => node.classList.contains('is-open'))).toHaveLength(1)
-    expect(follow.querySelector('.garden-rift-dossier')).not.toBeNull()
-    expect(follow.querySelectorAll('.garden-rift-beat')).toHaveLength(3)
-    expect(follow.querySelectorAll('.garden-rift-options button')).toHaveLength(0)
-    expect(follow.querySelector('.garden-rift-explain')).not.toBeNull()
-    expect(textOf(follow.querySelector('.garden-rift-dossier')!)).toContain('当时')
-    expect(follow.querySelectorAll('.garden-rift-archive-post')).toHaveLength(3)
-    expect(textOf(follow.querySelector('.garden-rift-archive')!)).toContain('TA 写过的')
-    expect(textOf(follow.querySelector('.garden-rift-archive-post')!)).toContain('阅读原文（演示）')
+    expect(pick.querySelector('.garden-rift-follow')).toBeNull()
+    expect(pick.querySelectorAll('.garden-rift-npc')).toHaveLength(0)
+    expect(pick.querySelectorAll('.garden-rift-year')).toHaveLength(3)
+    expect(textOf(pick)).toContain('写下个人展望')
   })
 
-  it('keeps the foresight and ending copy that the demo must not lose', () => {
+  it('keeps the foresight copy and turns the ending into a farewell plus one source', () => {
     const fore = mount(ctx({ view: view('foresight') }))
     expect(fore.querySelector('h1')?.textContent).toBe('23 → 24 → 25 岁可能的走向')
     expect(textOf(fore)).toContain('不是命运定论')
@@ -204,16 +196,75 @@ describe('garden rift pages', () => {
     expect(textOf(fore)).toContain('第五幕')
 
     const end = mount(ctx({ view: view('end') }))
-    expect(textOf(end)).toContain('第六幕')
-    expect(end.querySelector('h1')?.textContent).toMatch(/有了不一样的体会/)
+    expect(textOf(end)).toContain('第五幕')
+    expect(textOf(end)).toContain('不是匹配分数')
+    expect(textOf(end)).toContain('不会伪造真人原话')
+    expect(textOf(end)).not.toContain('「世界比课表更早收费」')
+    expect(textOf(end)).not.toContain('第六幕')
     expect(end.querySelector('.garden-rift-play')?.classList.contains('is-end')).toBe(true)
-    expect(textOf(end)).toContain('你走过的选择链')
-    expect(textOf(end)).toContain('阅读原文（演示）')
-    expect(end.querySelectorAll('.garden-rift-exit-star')).toHaveLength(3)
-    expect(end.querySelectorAll('.garden-rift-end-chain li').length).toBeGreaterThan(0)
-    expect(end.querySelector('.garden-rift-end-sky')).not.toBeNull()
-    expect(end.querySelector('.garden-rift-journey')).toBeNull()
-    expect(textOf(end.querySelector('.garden-rift-end-sky')!)).toContain('时代里的轨迹')
-    expect(textOf(end.querySelector('.garden-rift-end-blessing')!)).toMatch(/\S/)
+    expect(end.querySelector('.garden-outlook-report')).not.toBeNull()
+    expect(textOf(end.querySelector('.garden-outlook-report')!)).toContain('人生回测报告')
+    expect(end.querySelector('.garden-outlook-friend')).not.toBeNull()
+    expect(end.querySelector('.garden-outlook-consult')).not.toBeNull()
+    expect(textOf(end.querySelector('.garden-outlook-friend')!)).toContain('同代')
+    expect(textOf(end.querySelector('.garden-outlook-consult')!)).toContain('前辈')
+    const avatarFrames = end.querySelectorAll('.garden-outlook-avatar-frame')
+    expect(avatarFrames).toHaveLength(2)
+    expect(avatarFrames.map(frame => frame.getAttribute('data-avatar-state'))).toEqual(['placeholder', 'placeholder'])
+    expect(end.querySelectorAll('.garden-outlook-avatar-placeholder')).toHaveLength(2)
+    const live = new FakeNode('figure') as unknown as HTMLElement
+    fillOutlookAvatar(live, {
+      name: '新兵连的灯',
+      headline: '走过相近路口',
+      quote: '',
+      href: 'https://www.zhihu.com/question/1',
+      avatar: 'https://picx.zhimg.com/50/v2-84ce3330420f9332a1d69d4cd1f10c2f_l.jpg',
+      why: '公开文字和你种下的选择对上了。',
+      kind: 'peer',
+      source: 'zhihu',
+    }, '同代')
+    expect(live.getAttribute('data-avatar-state')).toBe('live')
+    expect((live.querySelector('img') as { src?: string } | null)?.src).toContain('zhimg.com')
+    expect(end.querySelectorAll('.garden-outlook-refresh')).toHaveLength(2)
+    expect(end.querySelectorAll('.garden-outlook-why')).toHaveLength(2)
+    expect(textOf(end.querySelector('.garden-outlook-why')!)).toMatch(/\S/)
+    expect(end.querySelector('.garden-rift-follow')).toBeNull()
+    expect(end.querySelectorAll('.garden-rift-npc')).toHaveLength(0)
+    expect(textOf(end)).toContain('盐选会员')
+    expect(textOf(end)).toContain('写下个人展望')
+    expect(textOf(end)).toContain('从第一幕重新体验')
+  })
+
+  it('uses the interview agency on the ending and keeps the full report folded', () => {
+    const interview: InterviewState = {
+      ...emptyInterview([{
+        id: '20:提前实习',
+        age: 20,
+        title: '提前实习',
+        status: 'complete',
+        slots: {
+          choice: '先去实习碰世界',
+          motive: '想离家近一点也想让家里少操心',
+          constraint: '家里存款不够再读一年',
+          alternative: '再搏考研',
+          agency: '条件妥协',
+        },
+        sparse: {},
+      }]),
+      report: 'full',
+    }
+    const end = mount(ctx({
+      interview,
+      view: view('end', { followSlot: 'A · 同代相近', foreOpen: '23:go-home' }),
+    }))
+    expect(textOf(end.querySelector('.garden-outlook-report')!)).toContain('人生回测报告')
+    expect(textOf(end.querySelector('.garden-outlook-report')!)).toContain('先去实习碰世界')
+    expect(textOf(end.querySelector('.garden-outlook-report')!)).toMatch(/代价|成就|核心原因|方法论/)
+    expect(end.querySelector('.garden-outlook-friend')).not.toBeNull()
+    expect(end.querySelector('.garden-outlook-consult')).not.toBeNull()
+    expect(end.querySelectorAll('.garden-outlook-avatar-frame')).toHaveLength(2)
+    expect(end.querySelectorAll('.garden-outlook-refresh')).toHaveLength(2)
+    expect(end.querySelector('.garden-rift-follow')).toBeNull()
+    expect(end.querySelector('.garden-rift-dossier')).toBeNull()
   })
 })

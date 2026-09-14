@@ -4,6 +4,9 @@
   font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
   font-synthesis: none;
   --hint-silver: #d7d7d7;
+  --moon-gold: #d8b968;
+  --moon-gold-bright: #ffe7a3;
+  --moon-gold-soft: #d8b96833;
 }
 
 * { box-sizing: border-box; }
@@ -308,7 +311,7 @@ body,
 }
 
 .archive-scene[data-entry="warp"].is-active .archive-white-entry {
-  animation: archive-white-release 1.24s steps(16, end) forwards;
+  opacity: 0;
 }
 
 .archive-scene[data-entry="debug"].is-active .archive-white-entry {
@@ -642,6 +645,82 @@ body,
 
 .archive-interview-reset { margin-left: 4px; }
 
+.archive-life-events {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #2e2e2b;
+}
+
+.archive-life-events[hidden] { display: none; }
+
+.archive-life-events-kicker,
+.archive-life-events-count {
+  margin: 0;
+  color: #8d8d88;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+.archive-life-event-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.archive-life-event-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #d0d0cb;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.archive-life-event-list button {
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid #464644;
+  background: transparent;
+  color: #858581;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+}
+
+.archive-life-event-form {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.archive-life-event-form input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #686864;
+  background: #070706;
+  color: #efefea;
+  font: inherit;
+  font-size: 11px;
+}
+
+.archive-life-event-form button {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #8f8f8a;
+  background: #d5d5d0;
+  color: #090909;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
 .archive-interview.has-error .archive-interview-input { border-color: #c5c5c0; animation: archive-input-error 180ms steps(3, end) 2; }
 .archive-interview.has-error .archive-interview-error { color: #d0d0cb; }
 .archive-interview.is-confirmed { filter: brightness(1.18); }
@@ -823,20 +902,28 @@ body {
   --moon-drag-progress: 0;
   --warp-progress: 0;
   --arrival-progress: 0;
+  --destination-progress: 0;
 }
 
-.warp-whiteout {
+.warp-destination {
   position: absolute;
-  z-index: 8;
+  z-index: 7;
   inset: 0;
-  background: #f7f7f3;
-  clip-path: circle(calc(var(--arrival-progress) * 92vmax) at 50% 45.9%);
-  opacity: 0;
+  overflow: hidden;
+  background: #000;
+  clip-path: circle(calc(var(--destination-progress) * 78vmax) at 53.35% 46.9%);
   pointer-events: none;
 }
 
-.opening-scene.is-warping .warp-whiteout {
-  opacity: 1;
+.warp-destination img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transform: scale(calc(1.16 - var(--destination-progress) * 0.16));
+  transform-origin: 53.35% 46.9%;
 }
 
 .opening-scene.is-ready { opacity: 1; }
@@ -1398,6 +1485,62 @@ body {
   .archive-forward-control { display: block; }
 }
 
+/* Current-action beacon: one restrained gold language shared by the opening and archive. */
+.opening-scene.is-portal-ready .start-backtest,
+.archive-scene:not(.is-interviewing):not(.is-auditing):not(.is-door-opening):not(.is-door-unlocking) .archive-forward-control:not(:disabled),
+.archive-interview-form > button[type="submit"]:not(:disabled) {
+  border-color: var(--moon-gold);
+  color: var(--moon-gold-bright);
+  background: #1c1609;
+  box-shadow: 0 0 0 1px #000, 0 0 14px var(--moon-gold-soft), inset 0 0 10px #d8b96812;
+  animation: next-action-breathe 1.45s steps(5, end) infinite alternate;
+}
+
+.archive-interview-options button:not(:disabled) {
+  border-color: #8f7945;
+  color: #dbc98d;
+}
+
+.opening-scene.is-portal-ready .start-backtest::after,
+.archive-scene:not(.is-interviewing):not(.is-auditing):not(.is-door-opening):not(.is-door-unlocking) .archive-forward-control:not(:disabled)::before,
+.archive-interview-form > button[type="submit"]:not(:disabled)::before {
+  content: "\261e";
+  position: absolute;
+  left: -1.65em;
+  top: 50%;
+  color: var(--moon-gold-bright);
+  font-family: "SimSun", serif;
+  font-size: 1.05em;
+  line-height: 1;
+  text-shadow: 0 0 8px var(--moon-gold);
+  transform: translateY(-50%);
+  animation: next-finger-nudge .8s steps(3, end) infinite alternate;
+  pointer-events: none;
+}
+
+.archive-interview-form > button[type="submit"] { position: relative; }
+
+.archive-forward-control::before { margin-right: .55em; }
+
+@keyframes next-action-breathe {
+  from { filter: brightness(.88); }
+  to { filter: brightness(1.18); }
+}
+
+@keyframes next-finger-nudge {
+  from { transform: translate(-3px, -50%); }
+  to { transform: translate(2px, -50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opening-scene.is-portal-ready .start-backtest,
+  .archive-forward-control,
+  .archive-interview-form > button[type="submit"],
+  .opening-scene.is-portal-ready .start-backtest::after,
+  .archive-forward-control::before,
+  .archive-interview-form > button[type="submit"]::before { animation: none !important; }
+}
+
 .personal-tag {
   position: fixed; z-index: 40; right: 2.4%; bottom: 2.2%;
   font-family: "SimSun", "Songti SC", serif; color: #dcdcd7;
@@ -1408,6 +1551,11 @@ body {
 }
 .personal-tag-toggle:hover, .personal-tag.is-open .personal-tag-toggle { color: #fff; }
 .personal-tag.is-written .personal-tag-toggle::after { content: ' ·'; color: #8d8d83; }
+.personal-tag-panel[hidden] { display: none !important; }
+.personal-tag-scrim,
+.personal-tag-context-toggle,
+.personal-tag-cancel { display: none; }
+.personal-tag-context { display: contents; }
 .personal-tag-panel {
   position: absolute; right: 0; bottom: 2.6em; width: min(360px, 86vw);
   max-height: min(72vh, 560px); overflow-y: auto; overscroll-behavior: contain;
@@ -1428,6 +1576,8 @@ body {
 .personal-tag-profile dd { margin: 0; color: #d8d8cc; overflow-wrap: anywhere; }
 .personal-tag-choices { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; line-height: 1.55; color: #d8d8cc; }
 .personal-tag-choices .is-empty { color: #8d8d83; }
+.personal-tag-events { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; line-height: 1.55; color: #d8d8cc; }
+.personal-tag-events .is-empty { color: #8d8d83; }
 .personal-tag-form { display: grid; gap: 12px; }
 .personal-tag-form label { display: grid; gap: 6px; font-size: 12px; letter-spacing: .08em; color: #c4c4b8; }
 .personal-tag-form textarea {

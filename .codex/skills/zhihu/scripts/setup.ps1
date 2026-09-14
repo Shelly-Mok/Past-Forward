@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 function Fail-Json([string]$Code, [string]$Message) {
     @{ ok = $false; error = @{ code = $Code; message = $Message } } | ConvertTo-Json -Compress

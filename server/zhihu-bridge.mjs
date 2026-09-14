@@ -4,6 +4,9 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { loadProjectEnv } from './load-env.mjs'
+
+loadProjectEnv()
 
 const execFileAsync = promisify(execFile)
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
@@ -42,6 +45,7 @@ function candidateCliPaths() {
     process.env.ZHIHU_CLI_BIN,
     path.join(home, 'Library/Application Support/zhihu-cli/current/zhihu-cli'),
     path.join(home, '.local/share/zhihu-cli/current/zhihu-cli'),
+    path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData/Local'), 'ZhihuCLI/current/zhihu-cli.exe'),
   ].filter(Boolean)
 }
 
@@ -84,7 +88,7 @@ async function runCli(args, timeout = 30000) {
   const cli = await getCliPath()
   if (!cli) throw httpError(503, 'zhihu-cli 不可用，请先安装官方 CLI 并配置 Access Secret。', 'CLI_UNAVAILABLE')
   try {
-    const { stdout } = await execFileAsync(cli, args, { timeout })
+    const { stdout } = await execFileAsync(cli, args, { timeout, env: process.env })
     const payload = JSON.parse(stdout)
     if (payload && payload.ok === false && payload.error) {
       throw httpError(502, payload.error.message || '开放平台命令失败', payload.error.code || 'COMMAND_FAILED')
@@ -141,15 +145,23 @@ async function searchZhihu(query, count) {
   return cacheSet(searchCache, key, data.Items || [])
 }
 
+function envAuthConfigured() {
+  return Boolean(String(process.env.ZHIHU_ACCESS_SECRET || '').trim())
+}
+
 async function handleHealth() {
   const cli = await getCliPath()
-  let authConfigured = false
+  let authConfigured = envAuthConfigured()
   if (cli) {
     try {
       const status = await runCli(['auth', 'status'], 15000)
-      authConfigured = status?.ok !== false && Boolean(status?.source || status?.keychain)
+      const source = String(status?.source || '')
+      const keychain = String(status?.keychain || '')
+      const fromCli = status?.ok !== false && Boolean(source) && source !== 'none'
+      const fromKeychain = Boolean(keychain) && keychain !== 'not_found'
+      authConfigured = Boolean(fromCli || fromKeychain || envAuthConfigured())
     } catch {
-      authConfigured = false
+      authConfigured = envAuthConfigured()
     }
   }
   return {
@@ -316,6 +328,10 @@ async function handleAuthor(url) {
   return { ok: true, query, items }
 }
 
+export async function searchPublic(query, count = 8) {
+  return searchZhihu(query, count)
+}
+
 export async function handleZhihuApi(request, response) {
   const host = request.headers.host || '127.0.0.1'
   const url = new URL(request.url, `http://${host}`)
@@ -340,6 +356,8 @@ export async function handleZhihuApi(request, response) {
       sendJson(response, 200, await handleAuthor(url))
       return true
     }
+    const { handleLifeRoutes } = await import('./life-dialogue.mjs')
+    if (await handleLifeRoutes(request, response, url, { searchPublic, sendJson, readJsonBody })) return true
     if (url.pathname.startsWith('/api/')) {
       sendJson(response, 404, { ok: false, error: 'NOT_FOUND' })
       return true

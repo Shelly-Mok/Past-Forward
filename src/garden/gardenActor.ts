@@ -139,7 +139,7 @@ export class GardenActor {
   private travelSeconds = 0
   get busy() { return this.phase !== 'idle' && this.phase !== 'greeting' }
   get duration() {
-    return this.phase === 'walking' ? this.travelSeconds : this.phase === 'observing' ? Math.max(.01, flowerDuration(this.chapter!) - 1.46) : ({ idle: Infinity, turning: .28, kneeling: .66, planting: .8, rising: .66, touching: .75, greeting: .7, boarding: 1.18 }[this.phase])
+    return this.phase === 'walking' ? this.travelSeconds : this.phase === 'observing' ? Math.max(.01, flowerDuration(this.chapter!) - .7) : ({ idle: Infinity, turning: .16, kneeling: .34, planting: .38, rising: .32, touching: .48, greeting: .7, boarding: 1.18 }[this.phase])
   }
   get progress() { return Math.min(1, this.elapsed / this.duration) }
   start(chapter: number, soil: GroundPoint, revisit: boolean) {
@@ -149,7 +149,7 @@ export class GardenActor {
     // Stand on the lunar soil beside the mound, not inside the flower.
     const target = { x: soil.x - 62, y: soil.y + 6 }
     this.route = gardenPath(this.position, target)
-    this.travelSeconds = Math.max(.15, pathLength(this.route) / 154)
+    this.travelSeconds = Math.max(.12, pathLength(this.route) / 260)
     this.facing = this.route.length > 1 && this.route[1].x < this.position.x ? -1 : 1
     this.phase = 'turning'; this.elapsed = 0; this.walkDistance = 0
     return true
@@ -206,7 +206,7 @@ export class GardenActor {
         this.phase = 'planting'
         events.push({ type: 'seed', chapter: this.chapter!, revisit: false })
       } else if (previous === 'planting') this.phase = 'rising'
-      else if (previous === 'rising' && flowerDuration(this.chapter!) > 1.46) this.phase = 'observing'
+      else if (previous === 'rising' && flowerDuration(this.chapter!) > .7) this.phase = 'observing'
       else {
         this.phase = 'idle'
         if (previous === 'boarding') events.push({ type: 'boarded' })

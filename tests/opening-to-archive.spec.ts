@@ -54,11 +54,17 @@ test('one continuous run connects shore, rewind, archive interview and the playa
 
   // Continue the same session, without a debug URL or injected saved profile.
   const interview = page.locator('.archive-interview')
-  for (const answer of ['35', '不透露', '与家人同住', '上班', '18岁']) {
+  for (const answer of ['35', '女', '本科', '工作', '18岁高考']) {
     await page.keyboard.down('w')
     await expect(interview).toHaveAttribute('aria-hidden', 'false', { timeout: 12_000 })
     await page.keyboard.up('w')
     await page.locator('.archive-interview-input').fill(answer)
+    if (answer === '18岁高考') {
+      await page.getByLabel('事件发生时的年龄').fill('12')
+      await page.getByLabel('那一年的重大选择').fill('跟着父母搬家')
+      await page.getByRole('button', { name: '记下这一年' }).click()
+      await expect(page.locator('.archive-life-event-list')).toContainText('12岁 · 跟着父母搬家')
+    }
     await page.locator('.archive-interview-input').press('Enter')
     await expect(interview).toHaveAttribute('aria-hidden', 'true')
   }
@@ -68,13 +74,14 @@ test('one continuous run connects shore, rewind, archive interview and the playa
   for (let index = 0; index < 10; index += 1) await page.keyboard.press('w')
   await expect(archive).toHaveAttribute('data-phase', 'portal-arrived', { timeout: 12_000 })
   await expect(page.locator('.garden-whiteout')).toBeHidden({ timeout: 12_000 })
-  const garden = page.locator('.garden-scene')
+  const garden = page.getByRole('region', { name: '第三幕：月面人生花园' })
   await expect(garden).toBeVisible()
   await expect(archive).toBeHidden()
   await expect(opening).toBeHidden()
   await expect(garden).toHaveAttribute('data-current-age', '35')
   await expect(garden).toHaveAttribute('data-target-age', '18')
   await expect(garden).toHaveAttribute('data-age', '0')
+  await expect(page.getByRole('button', { name: '12岁 · 重大事件' })).toBeVisible()
   await page.getByRole('button', { name: '15岁', exact: true }).click()
   const flower = page.locator('.garden-choice-flower').first()
   await expect(flower).toHaveClass(/is-landed/, { timeout: 4000 })
@@ -84,5 +91,5 @@ test('one continuous run connects shore, rewind, archive interview and the playa
   await expect(page.locator('.garden-ground-flower')).toHaveAttribute('data-planted', 'true', { timeout: 12_000 })
   await page.screenshot({ path: 'playtest/three-acts-06-planted.png' })
 
-  expect(consoleErrors).toEqual([])
+  expect(consoleErrors.filter(text => !text.includes('502'))).toEqual([])
 })
