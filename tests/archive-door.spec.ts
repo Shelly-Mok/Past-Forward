@@ -85,6 +85,20 @@ test('the archive waits for the profile and memory reel before opening the vault
   await expect(page.locator('.archive-vault-door-3d')).toBeVisible()
   await page.screenshot({ path: 'playtest/archive-door-05-portal.png' })
 
+  const whiteout = page.locator('.garden-whiteout')
+  await whiteout.evaluate((element) => {
+    const phases: Array<string | undefined> = [element.dataset.phase]
+    let whiteStyle: { opacity: string, backgroundColor: string } | null = null
+    new MutationObserver(() => {
+      const phase = element.dataset.phase
+      if (phases.at(-1) !== phase) phases.push(phase)
+      if (phase === 'white') {
+        const style = getComputedStyle(element)
+        whiteStyle = { opacity: style.opacity, backgroundColor: style.backgroundColor }
+      }
+    }).observe(element, { attributes: true, attributeFilter: ['data-phase', 'class', 'hidden'] })
+    Object.assign(window, { observedWhiteoutPhases: phases, observedWhiteoutStyle: () => whiteStyle })
+  })
   await page.keyboard.press('w')
   await expect(scene).toHaveAttribute('data-phase', 'portal-walking')
   for (let index = 0; index < 9; index += 1) await page.keyboard.press('w')
@@ -95,12 +109,14 @@ test('the archive waits for the profile and memory reel before opening the vault
   await expect(page.locator('.archive-seated-state')).toHaveCSS('opacity', '0')
   await page.screenshot({ path: 'playtest/archive-door-05b-arrived-at-portal.png' })
 
-  const whiteout = page.locator('.garden-whiteout')
-  await expect(whiteout).toHaveAttribute('data-phase', 'white', { timeout: 4000 })
-  await expect(whiteout).toHaveCSS('opacity', '1')
-  await expect(whiteout).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await page.waitForFunction(() => (window as unknown as { observedWhiteoutPhases: string[] }).observedWhiteoutPhases.includes('white'))
+  const whiteoutStyle = await page.evaluate(() => (window as unknown as { observedWhiteoutStyle: () => { opacity: string, backgroundColor: string } }).observedWhiteoutStyle())
+  expect(whiteoutStyle).toEqual({ opacity: '1', backgroundColor: 'rgb(255, 255, 255)' })
   await page.screenshot({ path: 'playtest/archive-garden-06-white.png' })
   await expect(whiteout).toBeHidden({ timeout: 12_000 })
+  const whiteoutPhases = await page.evaluate(() => (window as unknown as { observedWhiteoutPhases: string[] }).observedWhiteoutPhases)
+  expect(whiteoutPhases.filter(phase => ['entering', 'white', 'revealing', 'complete'].includes(phase)))
+    .toEqual(['entering', 'white', 'revealing', 'complete'])
   const garden = page.locator('.garden-scene[aria-label="第三幕：月面人生花园"]')
   await expect(garden).toBeVisible()
   await expect(scene).toBeHidden()
