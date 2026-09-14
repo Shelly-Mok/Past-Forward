@@ -53,9 +53,14 @@ test('the archive waits for the profile and memory reel before opening the vault
   await expect(scene).toHaveAttribute('data-phase', 'ready')
   await scene.evaluate((element) => {
     const phases = [element.dataset.phase]
-    new MutationObserver(() => phases.push(element.dataset.phase))
-      .observe(element, { attributes: true, attributeFilter: ['data-phase'] })
-    Object.assign(window, { observedArchivePhases: phases })
+    const angles = [Math.abs(Number.parseFloat(element.style.getPropertyValue('--door-angle') || '0'))]
+    new MutationObserver(() => {
+      const phase = element.dataset.phase
+      const angle = Math.abs(Number.parseFloat(element.style.getPropertyValue('--door-angle') || '0'))
+      if (phases.at(-1) !== phase) phases.push(phase)
+      if (angles.at(-1) !== angle) angles.push(angle)
+    }).observe(element, { attributes: true, attributeFilter: ['data-phase', 'style'] })
+    Object.assign(window, { observedArchivePhases: phases, observedArchiveAngles: angles })
   })
   await page.keyboard.press('e')
   await page.waitForFunction(() => (window as unknown as { observedArchivePhases: string[] }).observedArchivePhases.includes('audit'))
@@ -65,33 +70,16 @@ test('the archive waits for the profile and memory reel before opening the vault
   await page.screenshot({ path: 'playtest/archive-door-03-unlocking.png' })
 
   await page.waitForFunction(() => (window as unknown as { observedArchivePhases: string[] }).observedArchivePhases.includes('opening'))
-  const earlyAngle = await scene.evaluate((element) => element.style.getPropertyValue('--door-angle'))
   await page.screenshot({ path: 'playtest/archive-door-04a-seal-break.png' })
-
-  await page.waitForFunction(() => {
-    const element = document.querySelector<HTMLElement>('.archive-scene')
-    return Math.abs(Number.parseFloat(element?.style.getPropertyValue('--door-angle') || '0')) >= 40
-  })
-  const middleAngle = await scene.evaluate((element) => element.style.getPropertyValue('--door-angle'))
-  await page.screenshot({ path: 'playtest/archive-door-04b-heavy-swing.png' })
-
-  await page.waitForFunction(() => {
-    const element = document.querySelector<HTMLElement>('.archive-scene')
-    return Math.abs(Number.parseFloat(element?.style.getPropertyValue('--door-angle') || '0')) >= 70
-  })
-  const lateAngle = await scene.evaluate((element) => element.style.getPropertyValue('--door-angle'))
-  await page.screenshot({ path: 'playtest/archive-door-04c-settle.png' })
-
-  // Under a busy parallel CI worker the first post-opening sample can already
-  // observe the settled angle; it must never be beyond the final pose.
-  expect(Math.abs(Number.parseFloat(earlyAngle))).toBeLessThanOrEqual(Math.abs(Number.parseFloat(lateAngle)))
-  expect(Math.abs(Number.parseFloat(middleAngle))).toBeGreaterThan(35)
-  expect(Math.abs(Number.parseFloat(lateAngle))).toBeGreaterThan(68)
 
   await expect(scene).toHaveAttribute('data-phase', 'portal', { timeout: 7_000 })
   const archivePhases = await page.evaluate(() => (window as unknown as { observedArchivePhases: string[] }).observedArchivePhases)
   expect(archivePhases.filter(phase => ['sitting', 'audit', 'unlocking', 'opening', 'portal'].includes(phase)))
     .toEqual(['sitting', 'audit', 'unlocking', 'opening', 'portal'])
+  const archiveAngles = await page.evaluate(() => (window as unknown as { observedArchiveAngles: number[] }).observedArchiveAngles)
+  expect(archiveAngles.at(-1)).toBeGreaterThan(68)
+  expect(archiveAngles.some(angle => angle > 0 && angle < 68)).toBe(true)
+  expect(archiveAngles.every((angle, index) => index === 0 || angle >= archiveAngles[index - 1])).toBe(true)
   await expect(page.locator('.archive-audit-message')).toHaveText('门已经打开了。准备好以后，就往前走吧。')
   await expect(page.locator('.archive-vault-portal-state')).toBeVisible()
   await expect(page.locator('.archive-vault-door-3d')).toBeVisible()
